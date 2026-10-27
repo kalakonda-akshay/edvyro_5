@@ -1123,7 +1123,15 @@ $("screeningForm")?.addEventListener("submit", async (e) => {
 // -------------------------------------------------------------
 // 4C. Offer Letter & LinkedIn Proof
 // -------------------------------------------------------------
-$("openOfferBtn")?.addEventListener("click", () => {
+$("openOfferBtn")?.addEventListener("click", async () => {
+  if (!window.currentInternOffer && currentInternUser) {
+    try {
+      const res = await fetch(`${API_BASE}/users/${currentInternUser.id}/offer`);
+      const json = await res.json();
+      if (json.data) window.currentInternOffer = json.data;
+    } catch (e) {}
+  }
+
   if (!window.currentInternOffer) {
     showToast("No offer letter issued yet. Submit an application to receive an offer!");
     return;
@@ -1136,15 +1144,15 @@ $("openOfferBtn")?.addEventListener("click", () => {
   $("offerBatch").textContent = o.batch || "2026-B1";
   $("offerDuration").textContent = o.duration || "3 Months";
   $("offerStartDate").textContent = o.start_date;
-  $("offerStipend").textContent = `₹${Number(o.stipend_amount).toLocaleString("en-IN")} / month`;
-  $("offerMentor").textContent = o.mentor_name || "Senior Engineering Lead";
+  $("offerStipend").textContent = o.stipend || "₹15,000 / month";
+  $("offerMentor").textContent = o.mentor_name || "Dr. Ramesh Mentor";
   $("offerCurrentStatus").textContent = o.status;
   $("offerCurrentStatus").className = o.status === "Accepted" ? "badge badge-status-open" : "badge badge-mode";
 
-  $("offerModal").hidden = false;
+  showModal("offerModal");
 });
 
-$("closeOfferModal")?.addEventListener("click", () => { $("offerModal").hidden = true; });
+$("closeOfferModal")?.addEventListener("click", () => { hideModal("offerModal"); });
 
 $("acceptOfferBtn")?.addEventListener("click", async () => {
   if (!window.currentInternOffer) return;
@@ -1160,6 +1168,7 @@ $("acceptOfferBtn")?.addEventListener("click", async () => {
       window.currentInternOffer = json.data;
       $("offerCurrentStatus").textContent = "Accepted";
       $("offerCurrentStatus").className = "badge badge-status-open";
+      hideModal("offerModal");
       loadWorkflowCards();
     }
   } catch (e) {
@@ -1191,7 +1200,7 @@ $("declineOfferBtn")?.addEventListener("click", async () => {
 // LinkedIn Proof Modal
 $("openLinkedinProofBtn")?.addEventListener("click", () => {
   $("linkedinProofForm").reset();
-  $("linkedinProofModal").hidden = false;
+  showModal("linkedinProofModal");
 });
 $("closeProofModal")?.addEventListener("click", () => { $("linkedinProofModal").hidden = true; });
 $("cancelProofBtn")?.addEventListener("click", () => { $("linkedinProofModal").hidden = true; });
