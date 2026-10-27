@@ -1,13 +1,21 @@
 /**
- * InternHub Capstone Portal Frontend Script
- * Production Features: Real-time filtering, loading/failure states, toast alerts, client validation, application tracking.
+ * InternshipChesko 🎯 Full Application Script
+ * Features:
+ * - Dynamic fetch with loading & retry states
+ * - Real-time multi-facet filtering (search, category pills, mode, stipend, status, saved)
+ * - Candidate Application submission with dual client & server validation
+ * - Recruiter "Post an Internship" publishing directly into SQLite via REST API
+ * - Recruiter "View Candidates" for any internship listing
+ * - "My Applications" tracking by email
+ * - Bookmark saving with localStorage persistence
+ * - One-click Share to clipboard with toast notification
  */
 
 const API_BASE = window.location.origin.includes(":80") ? window.location.origin : "http://127.0.0.1:8000";
 
 // App State
 let allInternships = [];
-let savedIds = JSON.parse(localStorage.getItem("internhub_capstone_saved") || "[]");
+let savedIds = JSON.parse(localStorage.getItem("internship_chesko_saved") || "[]");
 let activeCategory = "";
 
 // Element Selectors
@@ -29,11 +37,26 @@ const applyAlert = $("applyAlert");
 const submitApplyBtn = $("submitApplyBtn");
 const cancelApplyBtn = $("cancelApplyBtn");
 const closeApplyModal = $("closeApplyModal");
+
 const detailModal = $("detailModal");
 const detailContent = $("detailContent");
 const closeDetailModal = $("closeDetailModal");
+
 const myAppsModal = $("myAppsModal");
 const closeMyAppsModal = $("closeMyAppsModal");
+
+const postModal = $("postModal");
+const postForm = $("postForm");
+const postAlert = $("postAlert");
+const submitPostBtn = $("submitPostBtn");
+const cancelPostBtn = $("cancelPostBtn");
+const closePostModal = $("closePostModal");
+const postInternshipBtn = $("postInternshipBtn");
+
+const applicantsModal = $("applicantsModal");
+const closeApplicantsModal = $("closeApplicantsModal");
+const applicantsList = $("applicantsList");
+
 const filtersDrawer = $("filters");
 
 // Utilities
@@ -66,7 +89,7 @@ async function fetchInternships() {
   failureState.hidden = true;
   emptyState.hidden = true;
   internshipGrid.hidden = true;
-  resultCount.textContent = "Querying live database...";
+  resultCount.textContent = "Connecting to InternshipChesko API...";
 
   apiStatusBadge.className = "api-badge connecting";
   apiStatusBadge.querySelector(".status-text").textContent = "Connecting API...";
@@ -84,7 +107,7 @@ async function fetchInternships() {
     allInternships = json.data || [];
 
     apiStatusBadge.className = "api-badge connected";
-    apiStatusBadge.querySelector(".status-text").textContent = "API Live";
+    apiStatusBadge.querySelector(".status-text").textContent = "API Live 🟢";
 
     loadingState.hidden = true;
     renderListings();
@@ -95,10 +118,10 @@ async function fetchInternships() {
     emptyState.hidden = true;
 
     failureState.hidden = false;
-    failureMessage.textContent = `Unable to connect to the backend server (${err.message}). Verify the API server is running on ${API_BASE}.`;
+    failureMessage.textContent = `Unable to connect to the backend server (${err.message}). Verify the API is running on ${API_BASE}.`;
 
     apiStatusBadge.className = "api-badge error";
-    apiStatusBadge.querySelector(".status-text").textContent = "Offline";
+    apiStatusBadge.querySelector(".status-text").textContent = "Offline 🔴";
     resultCount.textContent = "0 positions loaded";
   }
 }
@@ -221,7 +244,7 @@ function openApplyModal(id) {
   applyForm.reset();
   $("charCount").textContent = "0";
   clearErrors();
-  hideAlert();
+  hideAlert(applyAlert);
 
   applyModal.hidden = false;
   $("fullName").focus();
@@ -231,17 +254,17 @@ function closeApplyModalView() {
   applyModal.hidden = true;
   applyForm.reset();
   clearErrors();
-  hideAlert();
+  hideAlert(applyAlert);
 }
 
-function showAlert(type, msg) {
-  applyAlert.className = `alert-box ${type}`;
-  applyAlert.textContent = msg;
-  applyAlert.hidden = false;
+function showAlert(alertEl, type, msg) {
+  alertEl.className = `alert-box ${type}`;
+  alertEl.textContent = msg;
+  alertEl.hidden = false;
 }
 
-function hideAlert() {
-  applyAlert.hidden = true;
+function hideAlert(alertEl) {
+  alertEl.hidden = true;
 }
 
 function setFieldError(field, msg) {
@@ -298,7 +321,7 @@ function validateForm() {
 
 applyForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  hideAlert();
+  hideAlert(applyAlert);
 
   if (!validateForm()) return;
 
@@ -327,12 +350,12 @@ applyForm.addEventListener("submit", async (e) => {
     const data = await res.json();
 
     if (res.status === 201) {
-      showAlert("success", `🎉 ${data.data.message}`);
-      showToast("Application submitted successfully!");
+      showAlert(applyAlert, "success", `🎉 ${data.data.message}`);
+      showToast("Application submitted successfully! 🚀");
       applyForm.reset();
       $("charCount").textContent = "0";
 
-      // Save email for quick lookup
+      // Save email for quick candidate lookup
       localStorage.setItem("internhub_last_email", payload.email);
 
       setTimeout(() => {
@@ -341,22 +364,22 @@ applyForm.addEventListener("submit", async (e) => {
     } else {
       const err = data.error || {};
       if (err.code === "DUPLICATE_APPLICATION") {
-        showAlert("error", "⚠️ Duplicate application: You have already applied for this opening.");
+        showAlert(applyAlert, "error", "⚠️ Duplicate application: You have already applied for this opening.");
         setFieldError("email", "Application already on file.");
       } else if (err.code === "RATE_LIMITED") {
-        showAlert("error", `⏳ ${err.message}`);
+        showAlert(applyAlert, "error", `⏳ ${err.message}`);
       } else if (err.code === "VALIDATION_ERROR" && Array.isArray(err.details)) {
-        showAlert("error", "Server validation caught invalid inputs.");
+        showAlert(applyAlert, "error", "Server validation caught invalid inputs.");
         err.details.forEach((d) => setFieldError(d.field, d.message));
       } else {
-        showAlert("error", err.message || "Failed to submit application.");
+        showAlert(applyAlert, "error", err.message || "Failed to submit application.");
       }
     }
   } catch (err) {
-    showAlert("error", "Network error: Unable to contact server. Please retry.");
+    showAlert(applyAlert, "error", "Network error: Unable to contact server. Please retry.");
   } finally {
     submitApplyBtn.disabled = false;
-    btnText.textContent = "Submit Application";
+    btnText.textContent = "Submit Application 🚀";
     spinner.hidden = true;
   }
 });
@@ -370,7 +393,7 @@ $("coverLetter").addEventListener("input", (e) => {
 });
 
 // -------------------------------------------------------------
-// 4. Role Detail View
+// 4. Role Detail View & Candidate List for Employers
 // -------------------------------------------------------------
 function openDetailView(id) {
   const item = allInternships.find((i) => i.id === Number(id));
@@ -398,7 +421,10 @@ function openDetailView(id) {
     </div>
     <h4 style="margin-bottom:8px;">About the Opportunity</h4>
     <p style="color:#495057; line-height:1.6; margin-bottom:24px;">${item.description || 'No detailed description provided.'}</p>
-    <div style="display:flex; gap:10px; justify-content:flex-end;">
+    <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end;">
+      <button class="btn btn-outline" id="viewCandidatesBtn">
+        👥 View Applicants
+      </button>
       <button class="btn btn-outline" id="detailSaveBtn">
         ${isSaved ? '♥ Saved' : '♡ Save Internship'}
       </button>
@@ -413,6 +439,11 @@ function openDetailView(id) {
     openDetailView(item.id);
   });
 
+  $("viewCandidatesBtn").addEventListener("click", () => {
+    detailModal.hidden = true;
+    openApplicantsModal(item.id, item.title, item.company);
+  });
+
   if (isOpen) {
     $("detailApplyBtn").addEventListener("click", () => {
       detailModal.hidden = true;
@@ -424,7 +455,139 @@ function openDetailView(id) {
 }
 
 // -------------------------------------------------------------
-// 5. My Applications Tracker
+// 5. Recruiter: View Applicants for an Internship
+// -------------------------------------------------------------
+async function openApplicantsModal(internshipId, title, company) {
+  $("applicantsModalTitle").textContent = `Candidates for: ${title}`;
+  $("applicantsModalSubtitle").textContent = `${company} · Position #${internshipId}`;
+  applicantsList.innerHTML = `<p class="text-muted text-center" style="margin:20px 0;">Loading applicants from database...</p>`;
+  applicantsModal.hidden = false;
+
+  try {
+    const res = await fetch(`${API_BASE}/internships/${internshipId}/applications`);
+    const data = await res.json();
+    const apps = data.data || [];
+
+    if (apps.length === 0) {
+      applicantsList.innerHTML = `<p class="text-muted text-center" style="margin:20px 0;">No candidates have applied for this position yet.</p>`;
+      return;
+    }
+
+    applicantsList.innerHTML = apps.map((a) => `
+      <div class="app-item-card">
+        <div class="app-item-header">
+          <span>${a.full_name}</span>
+          <span style="font-size:0.8rem; color:#868e96;">Applied ${formatDate(a.created_at)}</span>
+        </div>
+        <div style="font-size:0.88rem; color:#495057; margin-bottom:6px;">
+          📧 ${a.email} · 📱 ${a.phone}
+        </div>
+        ${a.cover_letter ? `<div style="font-size:0.84rem; color:#6c757d; font-style:italic; margin-bottom:8px;">"${a.cover_letter}"</div>` : ''}
+        <div>
+          <a href="${a.resume_url}" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:inline-flex;">
+            📄 View Resume
+          </a>
+        </div>
+      </div>
+    `).join("");
+  } catch (err) {
+    applicantsList.innerHTML = `<p style="color:var(--danger); text-align:center; margin:20px 0;">Failed to load candidate applications.</p>`;
+  }
+}
+
+// -------------------------------------------------------------
+// 6. Recruiter: Post New Internship
+// -------------------------------------------------------------
+postInternshipBtn.addEventListener("click", () => {
+  postForm.reset();
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  $("postDeadline").value = d.toISOString().split("T")[0];
+  hideAlert(postAlert);
+  postModal.hidden = false;
+  $("postTitle").focus();
+});
+
+cancelPostBtn.addEventListener("click", () => { postModal.hidden = true; });
+closePostModal.addEventListener("click", () => { postModal.hidden = true; });
+
+postForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  hideAlert(postAlert);
+
+  const title = $("postTitle").value.trim();
+  const company = $("postCompany").value.trim();
+  const category = $("postCategory").value;
+  const location = $("postLocation").value.trim();
+  const workMode = $("postWorkMode").value;
+  const duration = Number($("postDuration").value) || 3;
+  const stipend = Number($("postStipend").value) || 0;
+  const rawSkills = $("postSkills").value.trim();
+  const deadline = $("postDeadline").value;
+  const status = $("postStatus").value;
+  const description = $("postDesc").value.trim();
+
+  if (!title || !company || !location || !rawSkills || !deadline || !description) {
+    showAlert(postAlert, "error", "Please fill out all required fields.");
+    return;
+  }
+
+  const skills = rawSkills.split(",").map((s) => s.trim()).filter(Boolean);
+
+  const payload = {
+    title,
+    company,
+    category,
+    location,
+    work_mode: workMode,
+    duration,
+    stipend,
+    skills,
+    deadline,
+    status,
+    description
+  };
+
+  const btnText = submitPostBtn.querySelector(".btn-text");
+  const spinner = submitPostBtn.querySelector(".spinner");
+  submitPostBtn.disabled = true;
+  btnText.textContent = "Publishing...";
+  spinner.hidden = false;
+
+  try {
+    const res = await fetch(`${API_BASE}/internships`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+
+    if (res.status === 201) {
+      showAlert(postAlert, "success", "✨ Internship successfully posted to InternshipChesko!");
+      showToast("🚀 New internship posted live!");
+      postForm.reset();
+
+      // Refresh listings
+      await fetchInternships();
+
+      setTimeout(() => {
+        postModal.hidden = true;
+      }, 1800);
+    } else {
+      showAlert(postAlert, "error", data.error?.message || "Failed to publish internship.");
+    }
+  } catch (err) {
+    showAlert(postAlert, "error", "Network error while publishing internship.");
+  } finally {
+    submitPostBtn.disabled = false;
+    btnText.textContent = "Publish Internship ✨";
+    spinner.hidden = true;
+  }
+});
+
+// -------------------------------------------------------------
+// 7. My Applications Tracker
 // -------------------------------------------------------------
 $("myAppsBtn").addEventListener("click", () => {
   const lastEmail = localStorage.getItem("internhub_last_email") || "";
@@ -459,7 +622,7 @@ async function fetchMyApplications(email) {
           <span>${a.title}</span>
           <span class="badge badge-status-open">SUBMITTED</span>
         </div>
-        <div style="font-size:0.85rem; color:#6c757d; margin-bottom:6px;">${a.company} · ${a.location}</div>
+        <div style="font-size:0.85rem; color:#6c757d; margin-bottom:6px;">${a.company} · ${a.location} (${a.work_mode})</div>
         <div style="font-size:0.8rem; color:#868e96;">Applied on: ${formatDate(a.created_at)} · Reference #${a.id}</div>
       </div>
     `).join("");
@@ -469,7 +632,7 @@ async function fetchMyApplications(email) {
 }
 
 // -------------------------------------------------------------
-// 6. Bookmarking & Share
+// 8. Bookmarking & Share
 // -------------------------------------------------------------
 function toggleSave(id) {
   const numId = Number(id);
@@ -480,14 +643,14 @@ function toggleSave(id) {
     savedIds.push(numId);
     showToast("Saved to your bookmarks! ♥");
   }
-  localStorage.setItem("internhub_capstone_saved", JSON.stringify(savedIds));
+  localStorage.setItem("internship_chesko_saved", JSON.stringify(savedIds));
   renderListings();
 }
 
 function shareInternship(id) {
   const item = allInternships.find((i) => i.id === Number(id));
   if (!item) return;
-  const shareText = `Check out this opening: ${item.title} at ${item.company} (${item.work_mode}) on InternHub!`;
+  const shareText = `Check out this opening on InternshipChesko 🎯: ${item.title} at ${item.company} (${item.work_mode}, ${item.location})!`;
   if (navigator.clipboard) {
     navigator.clipboard.writeText(shareText);
     showToast("Position details copied to clipboard! 📋");
@@ -497,7 +660,7 @@ function shareInternship(id) {
 }
 
 // -------------------------------------------------------------
-// 7. Event Wiring
+// 9. Event Wiring
 // -------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", () => {
   $("year").textContent = new Date().getFullYear();
@@ -558,11 +721,14 @@ document.addEventListener("DOMContentLoaded", () => {
   closeApplyModal.addEventListener("click", closeApplyModalView);
   closeDetailModal.addEventListener("click", () => { detailModal.hidden = true; });
   closeMyAppsModal.addEventListener("click", () => { myAppsModal.hidden = true; });
+  closeApplicantsModal.addEventListener("click", () => { applicantsModal.hidden = true; });
 
   window.addEventListener("click", (e) => {
     if (e.target === applyModal) closeApplyModalView();
     if (e.target === detailModal) detailModal.hidden = true;
     if (e.target === myAppsModal) myAppsModal.hidden = true;
+    if (e.target === postModal) postModal.hidden = true;
+    if (e.target === applicantsModal) applicantsModal.hidden = true;
   });
 
   // Grid Action Delegator
