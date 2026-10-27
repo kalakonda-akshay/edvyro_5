@@ -3,6 +3,8 @@ Features:
 - Dual Panels: Intern Dashboard (Tasks, Submissions, Verified Certificate) & Admin Dashboard (Metrics, Candidates, Reviews, Certificate Controls)
 - Structured request logging, multi-stage health probes, security headers, rate limiting, and parameterized queries.
 """
+import csv
+import io
 import json
 import logging
 import random
@@ -16,7 +18,7 @@ from typing import Optional
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -25,13 +27,22 @@ from . import db
 from .limiter import rate_limiter
 from .schemas import (
     ApplicationCreate,
+    ApplicationStatusUpdate,
     CertificateIssue,
+    FinalProjectCreate,
+    FinalProjectReview,
     InternshipCreate,
     InternshipPatch,
     InternshipReplace,
+    LinkedInProofCreate,
+    LinkedInProofReview,
+    OfferAction,
+    OfferCreate,
+    QuizSubmissionCreate,
     TaskReview,
     TaskSubmit,
     UserRegister,
+    WeeklyReportCreate,
 )
 
 # Configure structured application logger
@@ -183,6 +194,31 @@ def to_row_data(data: dict) -> dict:
     return data
 
 
+def log_audit(action: str, actor: str, details: str):
+    """Record an audit trail event in the database."""
+    try:
+        with db.get_conn() as conn:
+            conn.execute(
+                "INSERT INTO audit_logs (action, actor, details) VALUES (?, ?, ?)",
+                (action, actor, details),
+            )
+    except Exception as e:
+        logger.error("Audit log error: %s", str(e))
+
+
+def notify_user(user_id: int, title: str, message: str):
+    """Deliver an in-app notification to the specified intern."""
+    try:
+        with db.get_conn() as conn:
+            conn.execute(
+                "INSERT INTO in_app_notifications (user_id, title, message) VALUES (?, ?, ?)",
+                (user_id, title, message),
+            )
+    except Exception as e:
+        logger.error("Notification error: %s", str(e))
+
+
+
 # ---------- Production Health Probes ----------
 @app.get("/health", tags=["Health"])
 def health_check():
@@ -256,6 +292,269 @@ def get_user_profile(user_id: int):
     return {"data": dict(user)}
 
 
+# ---------- Screening Quiz & Auto-Grading Endpoints ----------
+@app.get("/screening/quiz", tags=["Screening"])
+def get_screening_quiz(track: Optional[str] = "Full Stack Web Development"):
+    """Fetch screening quiz questions without exposing the answers."""
+    ensure_db()
+    with db.get_conn() as conn:
+        quiz = conn.execute("SELECT * FROM screening_quizzes WHERE track = ? OR id = 1 LIMIT 1", (track,)).fetchone()
+        if not quiz:
+            return error_response(404, "NOT_FOUND", "No screening quiz available for this track")
+        data = dict(quiz)
+        raw_questions = json.loads(data["questions"])
+        sanitized_questions = [
+            {"id": q["id"], "question": q["question"], "options": q["options"]}
+            for q in raw_questions
+        ]
+        data["questions"] = sanitized_questions
+        return {"data": data}
+
+
+@app.post("/users/{user_id}/screening/submit", tags=["Screening"])
+def submit_screening_quiz(user_id: int, payload: QuizSubmissionCreate):
+    """Auto-grade screening quiz and record anti-cheat telemetry."""
+    ensure_db()
+    with db.get_conn() as conn:
+        quiz = conn.execute("SELECT * FROM screening_quizzes WHERE id = ?", (payload.quiz_id,)).fetchone()
+        if not quiz:
+            return error_response(404, "NOT_FOUND", "Quiz not found")
+
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            return error_response(404, "NOT_FOUND", "User not found")
+
+        raw_questions = json.loads(quiz["questions"])
+        total = len(raw_questions)
+        correct = 0
+        for q in raw_questions:
+            qid_str = str(q["id"])
+            if qid_str in payload.answers and payload.answers[qid_str] == q["answer"]:
+                correct += 1
+
+        score_pct = int((correct / total) * 100) if total > 0 else 0
+        passed = 1 if score_pct >= quiz["pass_cutoff"] else 0
+
+        # Upsert submission
+        existing = conn.execute("SELECT id FROM quiz_submissions WHERE user_id = ? AND quiz_id = ?", (user_id, payload.quiz_id)).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE quiz_submissions
+                   SET score = ?, passed = ?, tab_switches = ?, copy_paste_log = ?, submitted_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                   WHERE id = ?""",
+                (score_pct, passed, payload.tab_switches, f"copy_paste_events={payload.copy_paste_count}", existing["id"]),
+            )
+            sub_id = existing["id"]
+        else:
+            cur = conn.execute(
+                """INSERT INTO quiz_submissions (user_id, quiz_id, score, passed, tab_switches, copy_paste_log)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (user_id, payload.quiz_id, score_pct, passed, payload.tab_switches, f"copy_paste_events={payload.copy_paste_count}"),
+            )
+            sub_id = cur.lastrowid
+
+        sub_row = conn.execute("SELECT * FROM quiz_submissions WHERE id = ?", (sub_id,)).fetchone()
+
+    msg = f"Screening completed! Score: {score_pct}%. Status: {'PASSED' if passed else 'RETRY NEEDED'}"
+    notify_user(user_id, "Screening Assessment Result", msg)
+    log_audit("QUIZ_SUBMIT", user["email"], f"Quiz #{payload.quiz_id}: score={score_pct}%, passed={passed}, tab_switches={payload.tab_switches}")
+    return {"data": dict(sub_row), "message": msg}
+
+
+@app.get("/users/{user_id}/screening", tags=["Screening"])
+def get_user_screening(user_id: int):
+    """Get screening results for user."""
+    ensure_db()
+    with db.get_conn() as conn:
+        sub = conn.execute("SELECT * FROM quiz_submissions WHERE user_id = ? ORDER BY id DESC LIMIT 1", (user_id,)).fetchone()
+        if not sub:
+            return {"data": None, "message": "No screening submitted yet."}
+        return {"data": dict(sub)}
+
+
+# ---------- Automated Offer Letters & Onboarding Endpoints ----------
+@app.get("/offers/{offer_id}", tags=["Offers"])
+def get_offer_letter(offer_id: str):
+    """View details of an official offer letter."""
+    ensure_db()
+    with db.get_conn() as conn:
+        offer = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (offer_id.strip().upper(),)).fetchone()
+        if not offer:
+            return error_response(404, "NOT_FOUND", f"Offer '{offer_id}' not found")
+        return {"data": dict(offer)}
+
+
+@app.get("/users/{user_id}/offer", tags=["Offers"])
+def get_user_offer(user_id: int):
+    """Retrieve active offer letter for an intern."""
+    ensure_db()
+    with db.get_conn() as conn:
+        offer = conn.execute("SELECT * FROM offers WHERE user_id = ? ORDER BY issued_at DESC LIMIT 1", (user_id,)).fetchone()
+        if not offer:
+            user = conn.execute("SELECT email, name FROM users WHERE id = ?", (user_id,)).fetchone()
+            if user:
+                app_row = conn.execute("SELECT id FROM applications WHERE email = ? ORDER BY id DESC LIMIT 1", (user["email"],)).fetchone()
+                if app_row:
+                    offer = conn.execute("SELECT * FROM offers WHERE application_id = ?", (app_row["id"],)).fetchone()
+        if not offer:
+            return {"data": None, "message": "No offer letter has been issued yet."}
+        return {"data": dict(offer)}
+
+
+@app.post("/admin/applications/{app_id}/offer", tags=["Offers"])
+def generate_offer_letter(app_id: int, payload: OfferCreate):
+    """Admin issues an official offer letter to an applicant."""
+    ensure_db()
+    with db.get_conn() as conn:
+        app_row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+        if not app_row:
+            return error_response(404, "NOT_FOUND", "Application not found")
+
+        user_id = payload.user_id
+        if not user_id:
+            user = conn.execute("SELECT id FROM users WHERE email = ?", (app_row["email"],)).fetchone()
+            user_id = user["id"] if user else None
+
+        offer_id = f"OFF-2026-{random.randint(10000, 99999)}"
+        expires_at = payload.expires_at or "2026-12-31"
+
+        conn.execute(
+            """INSERT INTO offers
+               (offer_id, application_id, user_id, intern_name, track, batch, duration, start_date, end_date, stipend_amount, mentor_name, signatory_name, status, expires_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Offered', ?)""",
+            (
+                offer_id,
+                app_id,
+                user_id,
+                payload.intern_name,
+                payload.track,
+                payload.batch or "2026-B1",
+                payload.duration or "3 Months",
+                payload.start_date,
+                payload.end_date,
+                payload.stipend_amount,
+                payload.mentor_name or "Senior Engineering Lead",
+                payload.signatory_name or "Program Director",
+                expires_at,
+            ),
+        )
+        conn.execute("UPDATE applications SET status = 'Offered' WHERE id = ?", (app_id,))
+        offer = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (offer_id,)).fetchone()
+
+    if user_id:
+        notify_user(user_id, "Official Internship Offer Letter Issued!", f"Congratulations! You have received an offer for {payload.track}. Offer ID: {offer_id}")
+    log_audit("OFFER_ISSUED", "admin", f"Issued offer {offer_id} to {payload.intern_name}")
+    return {"data": dict(offer), "message": f"Offer letter {offer_id} successfully generated!"}
+
+
+@app.post("/offers/{offer_id}/respond", tags=["Offers"])
+def respond_to_offer(offer_id: str, payload: OfferAction):
+    """Intern accepts or declines an offer."""
+    ensure_db()
+    with db.get_conn() as conn:
+        offer = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (offer_id.strip().upper(),)).fetchone()
+        if not offer:
+            return error_response(404, "NOT_FOUND", "Offer not found")
+
+        new_status = "Accepted" if payload.action == "accept" else "Declined"
+        conn.execute(
+            "UPDATE offers SET status = ?, accepted_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now')) WHERE offer_id = ?",
+            (new_status, offer["offer_id"]),
+        )
+        conn.execute("UPDATE applications SET status = ? WHERE id = ?", (new_status, offer["application_id"]))
+
+        updated = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (offer["offer_id"],)).fetchone()
+
+    if offer["user_id"]:
+        notify_user(offer["user_id"], f"Offer {new_status}", f"Your offer status has been updated to {new_status}.")
+    log_audit("OFFER_RESPONSE", str(offer["user_id"]), f"Offer {offer_id} {new_status}")
+    return {"data": dict(updated), "message": f"Offer {offer_id} marked as {new_status}."}
+
+
+# ---------- LinkedIn Post Proofs (Onboarding & Completion) ----------
+@app.post("/users/{user_id}/onboarding/linkedin-proof", tags=["Onboarding"])
+def submit_linkedin_proof(user_id: int, payload: LinkedInProofCreate):
+    """Intern submits LinkedIn post proof for onboarding offer post or completion post."""
+    ensure_db()
+    with db.get_conn() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            return error_response(404, "NOT_FOUND", "User not found")
+
+        existing = conn.execute(
+            "SELECT id FROM linkedin_proofs WHERE user_id = ? AND proof_type = ?",
+            (user_id, payload.proof_type),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """UPDATE linkedin_proofs
+                   SET post_url = ?, screenshot_url = ?, status = 'Pending', review_notes = '', submitted_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now')), reviewed_at = NULL
+                   WHERE id = ?""",
+                (payload.post_url, payload.screenshot_url, existing["id"]),
+            )
+            proof_id = existing["id"]
+        else:
+            cur = conn.execute(
+                """INSERT INTO linkedin_proofs (user_id, proof_type, post_url, screenshot_url, status)
+                   VALUES (?, ?, ?, ?, 'Pending')""",
+                (user_id, payload.proof_type, payload.post_url, payload.screenshot_url),
+            )
+            proof_id = cur.lastrowid
+
+        row = conn.execute("SELECT * FROM linkedin_proofs WHERE id = ?", (proof_id,)).fetchone()
+
+    notify_user(user_id, f"LinkedIn {payload.proof_type.capitalize()} Proof Submitted", "Your post proof is submitted and pending mentor approval.")
+    log_audit("LINKEDIN_PROOF_SUBMIT", user["email"], f"{payload.proof_type} proof submitted: {payload.post_url}")
+    return {"data": dict(row), "message": f"LinkedIn {payload.proof_type} proof submitted successfully!"}
+
+
+@app.get("/users/{user_id}/onboarding/linkedin-proofs", tags=["Onboarding"])
+def list_user_linkedin_proofs(user_id: int):
+    """Retrieve proof submissions for user."""
+    ensure_db()
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT * FROM linkedin_proofs WHERE user_id = ? ORDER BY id DESC", (user_id,)).fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+
+@app.get("/admin/linkedin-proofs", tags=["Admin"])
+def list_admin_linkedin_proofs():
+    """Admin / Mentor queue for reviewing LinkedIn proofs."""
+    ensure_db()
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT lp.*, u.name as intern_name, u.email as intern_email, u.college, u.domain
+               FROM linkedin_proofs lp
+               JOIN users u ON lp.user_id = u.id
+               ORDER BY lp.id DESC"""
+        ).fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+
+@app.post("/admin/linkedin-proofs/{proof_id}/review", tags=["Admin"])
+def review_linkedin_proof(proof_id: int, payload: LinkedInProofReview):
+    """Mentor / Admin approves or requests changes on LinkedIn proof."""
+    ensure_db()
+    with db.get_conn() as conn:
+        proof = conn.execute("SELECT * FROM linkedin_proofs WHERE id = ?", (proof_id,)).fetchone()
+        if not proof:
+            return error_response(404, "NOT_FOUND", "Proof submission not found")
+
+        conn.execute(
+            """UPDATE linkedin_proofs
+               SET status = ?, review_notes = ?, reviewed_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+               WHERE id = ?""",
+            (payload.status, payload.review_notes or "", proof_id),
+        )
+        updated = conn.execute("SELECT * FROM linkedin_proofs WHERE id = ?", (proof_id,)).fetchone()
+
+    notify_user(proof["user_id"], f"LinkedIn Proof {payload.status}", f"Your LinkedIn {proof['proof_type']} proof was {payload.status}. Notes: {payload.review_notes or 'Approved!'}")
+    log_audit("LINKEDIN_PROOF_REVIEW", "mentor", f"Proof #{proof_id} marked as {payload.status}")
+    return {"data": dict(updated), "message": f"LinkedIn proof marked as {payload.status}."}
+
+
+
 # ---------- 2. Intern Task Milestone & Submission Endpoints ----------
 @app.get("/tasks", tags=["Tasks"])
 def list_milestone_tasks():
@@ -282,6 +581,14 @@ def get_user_task_milestones(user_id: int):
             "SELECT * FROM task_submissions WHERE user_id = ?", (user_id,)
         ).fetchall()
         sub_map = {s["task_id"]: dict(s) for s in submissions}
+
+        # Check LinkedIn offer proof status for task lock
+        offer_proof = conn.execute(
+            "SELECT status FROM linkedin_proofs WHERE user_id = ? AND proof_type = 'offer'",
+            (user_id,),
+        ).fetchone()
+        offer_proof_status = offer_proof["status"] if offer_proof else "Not Submitted"
+        onboarding_unlocked = offer_proof_status == "Approved"
 
         combined = []
         approved_count = 0
@@ -322,6 +629,8 @@ def get_user_task_milestones(user_id: int):
             "total_tasks": total_tasks,
             "certificate_unlocked": approved_count == total_tasks,
             "certificate": dict(cert) if cert else None,
+            "onboarding_unlocked": onboarding_unlocked,
+            "offer_proof_status": offer_proof_status,
         }
     }
 
@@ -337,6 +646,15 @@ def submit_task_solution(user_id: int, task_id: int, payload: TaskSubmit):
         task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not task:
             return error_response(404, "NOT_FOUND", "Task not found")
+
+        # GitHub validation check
+        clean_url = payload.submission_url.strip()
+        plagiarism_flag = 0
+        if "github.com" in clean_url.lower():
+            # Basic validation
+            parts = clean_url.rstrip("/").split("/")
+            if len(parts) < 5:
+                return error_response(400, "VALIDATION_ERROR", "GitHub link must point to a specific repository (e.g. https://github.com/user/repo)")
 
         # Upsert submission
         existing = conn.execute(
@@ -354,19 +672,176 @@ def submit_task_solution(user_id: int, task_id: int, payload: TaskSubmit):
             sub_id = existing["id"]
         else:
             cur = conn.execute(
-                """INSERT INTO task_submissions (user_id, task_id, submission_url, notes, status)
-                   VALUES (?, ?, ?, ?, 'pending')""",
-                (user_id, task_id, payload.submission_url, payload.notes or ""),
+                """INSERT INTO task_submissions (user_id, task_id, submission_url, notes, status, plagiarism_flag)
+                   VALUES (?, ?, ?, ?, 'pending', ?)""",
+                (user_id, task_id, payload.submission_url, payload.notes or "", plagiarism_flag),
             )
             sub_id = cur.lastrowid
 
         sub_row = conn.execute("SELECT * FROM task_submissions WHERE id = ?", (sub_id,)).fetchone()
 
-    logger.info("Intern #%d submitted Task #%d: %s", user_id, task_id, payload.submission_url)
+    notify_user(user_id, f"Task #{task['task_num']} Submitted", f"Your submission for '{task['title']}' was received and queued for mentor review.")
+    log_audit("TASK_SUBMISSION", user["email"], f"Task #{task['task_num']} submitted: {payload.submission_url}")
     return {
         "data": dict(sub_row),
-        "message": f"{task['title']} submitted successfully for review! An admin will review it shortly.",
+        "message": f"{task['title']} submitted successfully for review! An admin or mentor will review it shortly.",
     }
+
+
+# ---------- Weekly Reports Endpoints ----------
+@app.post("/users/{user_id}/reports/weekly", tags=["Reports"])
+def submit_weekly_report(user_id: int, payload: WeeklyReportCreate):
+    """Intern submits weekly progress report (Done / Blockers / Next Week)."""
+    ensure_db()
+    with db.get_conn() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            return error_response(404, "NOT_FOUND", "User not found")
+
+        existing = conn.execute(
+            "SELECT id FROM weekly_reports WHERE user_id = ? AND week_number = ?",
+            (user_id, payload.week_number),
+        ).fetchone()
+
+        if existing:
+            conn.execute(
+                """UPDATE weekly_reports
+                   SET done_summary = ?, blockers = ?, next_week = ?, submitted_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                   WHERE id = ?""",
+                (payload.done_summary, payload.blockers or "", payload.next_week, existing["id"]),
+            )
+            report_id = existing["id"]
+        else:
+            cur = conn.execute(
+                """INSERT INTO weekly_reports (user_id, week_number, done_summary, blockers, next_week)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (user_id, payload.week_number, payload.done_summary, payload.blockers or "", payload.next_week),
+            )
+            report_id = cur.lastrowid
+
+        row = conn.execute("SELECT * FROM weekly_reports WHERE id = ?", (report_id,)).fetchone()
+
+    notify_user(user_id, f"Week {payload.week_number} Report Logged", "Your weekly progress update was successfully recorded.")
+    log_audit("WEEKLY_REPORT_SUBMIT", user["email"], f"Submitted week {payload.week_number} report")
+    return {"data": dict(row), "message": f"Week {payload.week_number} report submitted successfully!"}
+
+
+@app.get("/users/{user_id}/reports/weekly", tags=["Reports"])
+def get_user_weekly_reports(user_id: int):
+    """Retrieve submitted weekly reports and calculate missed reports count."""
+    ensure_db()
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT * FROM weekly_reports WHERE user_id = ? ORDER BY week_number ASC", (user_id,)).fetchall()
+        reports = [dict(r) for r in rows]
+
+        # Standard 4-week reporting cycle
+        submitted_weeks = {r["week_number"] for r in reports}
+        expected_weeks = {1, 2, 3, 4}
+        missed_count = len(expected_weeks - submitted_weeks)
+
+        return {
+            "data": {
+                "reports": reports,
+                "total_submitted": len(reports),
+                "missed_count": max(0, missed_count),
+            }
+        }
+
+
+# ---------- Final Project & Completion Endpoints ----------
+@app.post("/users/{user_id}/final-project", tags=["FinalProject"])
+def submit_final_project(user_id: int, payload: FinalProjectCreate):
+    """Intern submits final project report, live URL, and platform feedback."""
+    ensure_db()
+    with db.get_conn() as conn:
+        user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not user:
+            return error_response(404, "NOT_FOUND", "User not found")
+
+        existing = conn.execute("SELECT id FROM final_projects WHERE user_id = ?", (user_id,)).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE final_projects
+                   SET project_title = ?, repo_url = ?, live_url = ?, report_pdf_url = ?, self_assessment = ?, feedback_rating = ?, feedback_text = ?, status = 'Pending', submitted_at = (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+                   WHERE id = ?""",
+                (
+                    payload.project_title,
+                    payload.repo_url,
+                    payload.live_url or "",
+                    payload.report_pdf_url,
+                    payload.self_assessment,
+                    payload.feedback_rating,
+                    payload.feedback_text or "",
+                    existing["id"],
+                ),
+            )
+            proj_id = existing["id"]
+        else:
+            cur = conn.execute(
+                """INSERT INTO final_projects
+                   (user_id, project_title, repo_url, live_url, report_pdf_url, self_assessment, feedback_rating, feedback_text, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')""",
+                (
+                    user_id,
+                    payload.project_title,
+                    payload.repo_url,
+                    payload.live_url or "",
+                    payload.report_pdf_url,
+                    payload.self_assessment,
+                    payload.feedback_rating,
+                    payload.feedback_text or "",
+                ),
+            )
+            proj_id = cur.lastrowid
+
+        row = conn.execute("SELECT * FROM final_projects WHERE id = ?", (proj_id,)).fetchone()
+
+    notify_user(user_id, "Final Project Submitted", "Your final project has been submitted for mentor review.")
+    log_audit("FINAL_PROJECT_SUBMIT", user["email"], f"Final project submitted: {payload.project_title}")
+    return {"data": dict(row), "message": "Final project submitted successfully!"}
+
+
+@app.get("/users/{user_id}/final-project", tags=["FinalProject"])
+def get_user_final_project(user_id: int):
+    """Get final project submission for user."""
+    ensure_db()
+    with db.get_conn() as conn:
+        row = conn.execute("SELECT * FROM final_projects WHERE user_id = ?", (user_id,)).fetchone()
+        if not row:
+            return {"data": None, "message": "No final project submitted yet."}
+        return {"data": dict(row)}
+
+
+@app.get("/admin/final-projects", tags=["Admin"])
+def list_admin_final_projects():
+    """List final projects submitted by interns."""
+    ensure_db()
+    with db.get_conn() as conn:
+        rows = conn.execute(
+            """SELECT fp.*, u.name as intern_name, u.email as intern_email, u.college, u.domain
+               FROM final_projects fp
+               JOIN users u ON fp.user_id = u.id
+               ORDER BY fp.id DESC"""
+        ).fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+
+@app.post("/admin/final-projects/{project_id}/review", tags=["Admin"])
+def review_final_project(project_id: int, payload: FinalProjectReview):
+    """Admin / Mentor reviews final project."""
+    ensure_db()
+    with db.get_conn() as conn:
+        proj = conn.execute("SELECT * FROM final_projects WHERE id = ?", (project_id,)).fetchone()
+        if not proj:
+            return error_response(404, "NOT_FOUND", "Final project not found")
+
+        conn.execute("UPDATE final_projects SET status = ? WHERE id = ?", (payload.status, project_id))
+        updated = conn.execute("SELECT * FROM final_projects WHERE id = ?", (project_id,)).fetchone()
+
+    notify_user(proj["user_id"], f"Final Project {payload.status}", f"Your final project evaluation status is: {payload.status}")
+    log_audit("FINAL_PROJECT_REVIEW", "admin", f"Final project #{project_id} marked as {payload.status}")
+    return {"data": dict(updated), "message": f"Final project marked as {payload.status}."}
+
 
 
 # ---------- 3. Admin Panel Endpoints (Review Submissions & Management) ----------
@@ -465,10 +940,18 @@ def review_task_submission(submission_id: int, payload: TaskReview):
                 cert_id = f"IC-2026-{random.randint(10000, 99999)}"
                 start_date = "2026-09-01"
                 completion_date = datetime.now().strftime("%Y-%m-%d")
+                lor_text = (
+                    f"To Whom It May Concern,\n\n"
+                    f"This is to certify that {user['name']} has successfully completed the rigorous industrial internship program in {user['domain']} at InternshipChesko Tech Labs.\n"
+                    f"Throughout the duration, {user['name']} demonstrated remarkable dedication, problem-solving capability, and strong engineering fundamentals across all assigned production milestones. "
+                    f"Their performance was evaluated as Outstanding (A+).\n\n"
+                    f"We highly recommend {user['name']} for future engineering positions and wish them tremendous success in their career.\n\n"
+                    f"Sincerely,\nProgram Director, InternshipChesko\nAcademic Lead, EdVyro Certification Board"
+                )
                 conn.execute(
                     """INSERT INTO certificates
-                       (certificate_id, user_id, intern_name, college, domain, internship_title, company, start_date, completion_date, grade)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Outstanding (A+)')""",
+                       (certificate_id, user_id, intern_name, college, domain, internship_title, company, start_date, completion_date, grade, lor_text)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Outstanding (A+)', ?)""",
                     (
                         cert_id,
                         user_id,
@@ -479,10 +962,13 @@ def review_task_submission(submission_id: int, payload: TaskReview):
                         "InternshipChesko Tech Labs",
                         start_date,
                         completion_date,
+                        lor_text,
                     ),
                 )
                 existing_cert = conn.execute("SELECT * FROM certificates WHERE certificate_id = ?", (cert_id,)).fetchone()
                 cert_issued = True
+                notify_user(user_id, "Official Certificate Issued! 🎓", f"Congratulations! Your Internship Certificate {cert_id} is now available!")
+                log_audit("CERTIFICATE_AUTO_ISSUE", "system", f"Issued {cert_id} to {user['name']}")
                 logger.info("🎉 Certificate %s automatically issued to %s!", cert_id, user["name"])
 
             cert_data = dict(existing_cert)
@@ -500,28 +986,47 @@ def review_task_submission(submission_id: int, payload: TaskReview):
     }
 
 
-# ---------- 4. Verified Certificate Endpoints ----------
+# ---------- 4. Verified Certificate & Credential Endpoints ----------
+@app.get("/verify/{item_id}", tags=["Certificates"])
+def verify_credential(item_id: str):
+    """
+    Public verification endpoint supporting BOTH Certificates (IC-2026-XXXXX)
+    and Offer Letters (OFF-2026-XXXXX). Rate-limited and requires no login.
+    """
+    ensure_db()
+    clean_id = item_id.strip().upper()
+    with db.get_conn() as conn:
+        cert = conn.execute("SELECT * FROM certificates WHERE certificate_id = ?", (clean_id,)).fetchone()
+        if cert:
+            return {
+                "data": {
+                    **dict(cert),
+                    "type": "Internship Certificate of Completion",
+                    "verification_status": "VERIFIED & AUTHENTIC",
+                    "issuer": "InternshipChesko Certification Board",
+                    "accreditation": "EdVyro Industrial Partner Network",
+                }
+            }
+
+        offer = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (clean_id,)).fetchone()
+        if offer:
+            return {
+                "data": {
+                    **dict(offer),
+                    "type": "Official Internship Offer Letter",
+                    "verification_status": "VERIFIED & AUTHENTIC" if offer["status"] in ("Offered", "Accepted") else offer["status"].upper(),
+                    "issuer": "InternshipChesko HR Operations",
+                    "accreditation": "EdVyro Industrial Partner Network",
+                }
+            }
+
+    return error_response(404, "NOT_FOUND", f"Credential '{item_id}' not found or unrecognized.")
+
+
 @app.get("/certificates/{certificate_id}", tags=["Certificates"])
 def get_verified_certificate(certificate_id: str):
     """Public verification lookup for an issued internship certificate."""
-    ensure_db()
-    with db.get_conn() as conn:
-        cert = conn.execute(
-            "SELECT * FROM certificates WHERE certificate_id = ?",
-            (certificate_id.strip().upper(),),
-        ).fetchone()
-
-        if not cert:
-            return error_response(404, "NOT_FOUND", f"Certificate '{certificate_id}' is not recognized or verified.")
-
-    return {
-        "data": {
-            **dict(cert),
-            "verification_status": "VERIFIED & AUTHENTIC",
-            "issuer": "InternshipChesko Certification Board",
-            "accreditation": "EdVyro Educational Technologies Partner Network",
-        }
-    }
+    return verify_credential(certificate_id)
 
 
 @app.get("/users/{user_id}/certificate", tags=["Certificates"])
@@ -549,10 +1054,18 @@ def issue_certificate_manual(payload: CertificateIssue):
             return {"data": dict(existing), "message": "Certificate already exists for this intern."}
 
         cert_id = f"IC-2026-{random.randint(10000, 99999)}"
+        lor_text = payload.lor_text or (
+            f"To Whom It May Concern,\n\n"
+            f"This is to certify that {user['name']} has successfully completed the rigorous industrial internship program in {user['domain']} at InternshipChesko Tech Labs.\n"
+            f"Throughout the duration, {user['name']} demonstrated remarkable dedication, problem-solving capability, and strong engineering fundamentals across all assigned production milestones. "
+            f"Their performance was evaluated as Outstanding (A+).\n\n"
+            f"We highly recommend {user['name']} for future engineering positions and wish them tremendous success in their career.\n\n"
+            f"Sincerely,\nProgram Director, InternshipChesko\nAcademic Lead, EdVyro Certification Board"
+        )
         conn.execute(
             """INSERT INTO certificates
-               (certificate_id, user_id, intern_name, college, domain, internship_title, company, start_date, completion_date, grade)
-               VALUES (?, ?, ?, ?, ?, ?, ?, '2026-09-01', ?, ?)""",
+               (certificate_id, user_id, intern_name, college, domain, internship_title, company, start_date, completion_date, grade, lor_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, '2026-09-01', ?, ?, ?)""",
             (
                 cert_id,
                 payload.user_id,
@@ -563,12 +1076,16 @@ def issue_certificate_manual(payload: CertificateIssue):
                 payload.company,
                 datetime.now().strftime("%Y-%m-%d"),
                 payload.grade,
+                lor_text,
             ),
         )
         cert_row = conn.execute("SELECT * FROM certificates WHERE certificate_id = ?", (cert_id,)).fetchone()
 
+    notify_user(payload.user_id, "Certificate Issued! 🎓", f"Certificate {cert_id} has been issued by the admin.")
+    log_audit("CERTIFICATE_MANUAL_ISSUE", "admin", f"Issued {cert_id} to {user['name']}")
     logger.info("Manual certificate issued: %s to %s", cert_id, user["name"])
     return {"data": dict(cert_row), "message": f"Certificate {cert_id} successfully issued to {user['name']}!"}
+
 
 
 # ---------- 5. Internship Listings & Applications (Core Features) ----------
@@ -794,6 +1311,101 @@ def list_my_applications(email: str = Query(..., min_length=5, max_length=120)):
             (email.strip().lower(),),
         ).fetchall()
     return {"data": [dict(r) for r in rows], "meta": {"total": len(rows)}}
+
+
+@app.patch("/admin/applications/{app_id}/status", tags=["Admin"])
+def update_application_status(app_id: int, payload: ApplicationStatusUpdate):
+    """Move applicant through pipeline: Submitted -> Under Review -> Shortlisted -> Offered -> Accepted -> Declined -> Rejected."""
+    ensure_db()
+    with db.get_conn() as conn:
+        app_row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+        if not app_row:
+            return error_response(404, "NOT_FOUND", "Application not found")
+
+        conn.execute("UPDATE applications SET status = ? WHERE id = ?", (payload.status, app_id))
+        updated = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+
+        # If user account exists for applicant, deliver in-app notification
+        user = conn.execute("SELECT id FROM users WHERE email = ?", (app_row["email"],)).fetchone()
+        if user:
+            notify_user(user["id"], "Application Status Updated", f"Your application for role #{app_row['internship_id']} is now: {payload.status}")
+
+    log_audit("APPLICATION_STATUS_UPDATE", "admin", f"Application #{app_id} status changed to {payload.status}")
+    return {"data": dict(updated), "message": f"Application status updated to {payload.status}."}
+
+
+@app.get("/admin/export/csv", tags=["Admin"])
+def export_csv_data(type: str = Query("applications", pattern="^(applications|interns|submissions)$")):
+    """Export tabular platform data as downloadable CSV."""
+    ensure_db()
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    with db.get_conn() as conn:
+        if type == "applications":
+            rows = conn.execute(
+                """SELECT a.id, a.full_name, a.email, a.phone, a.college, a.status, a.created_at, i.title, i.company
+                   FROM applications a
+                   JOIN internships i ON a.internship_id = i.id
+                   ORDER BY a.id DESC"""
+            ).fetchall()
+            writer.writerow(["Application ID", "Full Name", "Email", "Phone", "College", "Status", "Applied At", "Internship", "Company"])
+            for r in rows:
+                writer.writerow(list(r))
+        elif type == "interns":
+            rows = conn.execute(
+                """SELECT id, name, email, phone, college, domain, role, created_at
+                   FROM users WHERE role = 'intern' ORDER BY id DESC"""
+            ).fetchall()
+            writer.writerow(["User ID", "Name", "Email", "Phone", "College", "Domain", "Role", "Registered At"])
+            for r in rows:
+                writer.writerow(list(r))
+        else:  # submissions
+            rows = conn.execute(
+                """SELECT ts.id, u.name, u.email, t.title, ts.submission_url, ts.status, ts.submitted_at, ts.reviewed_at
+                   FROM task_submissions ts
+                   JOIN users u ON ts.user_id = u.id
+                   JOIN tasks t ON ts.task_id = t.id
+                   ORDER BY ts.id DESC"""
+            ).fetchall()
+            writer.writerow(["Submission ID", "Intern Name", "Email", "Task Title", "Submission URL", "Status", "Submitted At", "Reviewed At"])
+            for r in rows:
+                writer.writerow(list(r))
+
+    csv_content = output.getvalue()
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=internshipchesko_{type}.csv"},
+    )
+
+
+@app.get("/admin/audit-logs", tags=["Admin"])
+def get_audit_logs(limit: int = 50):
+    """Retrieve audit log activity trail."""
+    ensure_db()
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return {"data": [dict(r) for r in rows]}
+
+
+@app.get("/notifications", tags=["Notifications"])
+def get_user_notifications(user_id: int):
+    """Retrieve in-app notifications for user."""
+    ensure_db()
+    with db.get_conn() as conn:
+        rows = conn.execute("SELECT * FROM in_app_notifications WHERE user_id = ? ORDER BY id DESC LIMIT 20", (user_id,)).fetchall()
+        unread_count = conn.execute("SELECT COUNT(*) FROM in_app_notifications WHERE user_id = ? AND is_read = 0", (user_id,)).fetchone()[0]
+        return {"data": [dict(r) for r in rows], "unread_count": unread_count}
+
+
+@app.post("/notifications/{notification_id}/read", tags=["Notifications"])
+def mark_notification_read(notification_id: int):
+    """Mark a notification as read."""
+    ensure_db()
+    with db.get_conn() as conn:
+        conn.execute("UPDATE in_app_notifications SET is_read = 1 WHERE id = ?", (notification_id,))
+        return {"message": "Notification marked as read."}
 
 
 # ---------- Frontend Static Files Mounting ----------

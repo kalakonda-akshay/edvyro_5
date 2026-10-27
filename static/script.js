@@ -85,8 +85,10 @@ function refreshInternPortal() {
     $("profileCollege").textContent = currentInternUser.college || "Engineering College";
     $("profileEmail").textContent = currentInternUser.email;
 
-    // Fetch Milestone Tasks for User
+    // Fetch Milestone Tasks for User & Workflow Cards
     loadInternTasks();
+    loadWorkflowCards();
+    loadNotificationsBadge();
   }
 }
 
@@ -140,6 +142,94 @@ $("switchUserBtn").addEventListener("click", () => {
     showToast("Logged out of intern account");
   }
 });
+
+async function loadWorkflowCards() {
+  if (!currentInternUser) return;
+  const uid = currentInternUser.id;
+
+  // 1. Screening
+  try {
+    const sRes = await fetch(`${API_BASE}/users/${uid}/screening`);
+    const sJson = await sRes.json();
+    if (sJson.data) {
+      const p = sJson.data.passed;
+      $("screeningStatusBadge").className = p ? "badge badge-status-open" : "badge badge-danger";
+      $("screeningStatusBadge").textContent = p ? `✅ Passed (${sJson.data.score}%)` : `⚠️ Score: ${sJson.data.score}% (Retry)`;
+    } else {
+      $("screeningStatusBadge").className = "badge badge-status-open";
+      $("screeningStatusBadge").textContent = "Status: Pending";
+    }
+  } catch (e) {}
+
+  // 2. Offer
+  try {
+    const oRes = await fetch(`${API_BASE}/users/${uid}/offer`);
+    const oJson = await oRes.json();
+    if (oJson.data) {
+      window.currentInternOffer = oJson.data;
+      const st = oJson.data.status;
+      $("offerStatusBadge").className = st === "Accepted" ? "badge badge-status-open" : "badge badge-mode";
+      $("offerStatusBadge").textContent = `Status: ${st}`;
+    } else {
+      $("offerStatusBadge").className = "badge badge-status-closed";
+      $("offerStatusBadge").textContent = "Status: Not Issued";
+    }
+  } catch (e) {}
+
+  // 3. LinkedIn Proofs
+  try {
+    const pRes = await fetch(`${API_BASE}/users/${uid}/onboarding/linkedin-proofs`);
+    const pJson = await pRes.json();
+    const proofs = pJson.data || [];
+    const offerProof = proofs.find((p) => p.proof_type === "offer");
+    if (offerProof) {
+      const st = offerProof.status;
+      $("linkedinProofStatusBadge").className = st === "Approved" ? "badge badge-status-open" : "badge badge-mode";
+      $("linkedinProofStatusBadge").textContent = `Offer Post: ${st}`;
+    } else {
+      $("linkedinProofStatusBadge").className = "badge badge-status-closed";
+      $("linkedinProofStatusBadge").textContent = "Status: Required";
+    }
+  } catch (e) {}
+
+  // 4. Weekly Reports
+  try {
+    const wRes = await fetch(`${API_BASE}/users/${uid}/reports/weekly`);
+    const wJson = await wRes.json();
+    const repData = wJson.data || {};
+    $("weeklyReportBadge").textContent = `${repData.total_submitted || 0} Reports · Missed: ${repData.missed_count || 0}`;
+  } catch (e) {}
+
+  // 5. Final Project
+  try {
+    const fRes = await fetch(`${API_BASE}/users/${uid}/final-project`);
+    const fJson = await fRes.json();
+    if (fJson.data) {
+      const st = fJson.data.status;
+      $("finalProjectBadge").className = st === "Approved" ? "badge badge-status-open" : "badge badge-mode";
+      $("finalProjectBadge").textContent = `Status: ${st}`;
+    } else {
+      $("finalProjectBadge").className = "badge badge-status-closed";
+      $("finalProjectBadge").textContent = "Status: Pending";
+    }
+  } catch (e) {}
+}
+
+async function loadNotificationsBadge() {
+  if (!currentInternUser) return;
+  try {
+    const res = await fetch(`${API_BASE}/notifications?user_id=${currentInternUser.id}`);
+    const json = await res.json();
+    const unread = json.unread_count || 0;
+    const badge = $("notifBadge");
+    if (unread > 0) {
+      badge.hidden = false;
+      badge.textContent = unread;
+    } else {
+      badge.hidden = true;
+    }
+  } catch (e) {}
+}
 
 async function loadInternTasks() {
   if (!currentInternUser) return;
@@ -307,6 +397,9 @@ async function loadAdminDashboard() {
   loadAdminSubmissions();
   loadAdminInterns();
   loadAdminApplications();
+  loadAdminProofs();
+  loadAdminProjects();
+  loadAdminAuditLogs();
 }
 
 async function loadAdminMetrics() {
@@ -508,7 +601,7 @@ async function loadAdminApplications() {
     }
 
     if (allApps.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:24px;">No job applications submitted yet.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No job applications submitted yet.</td></tr>`;
       return;
     }
 
@@ -516,25 +609,238 @@ async function loadAdminApplications() {
       <tr>
         <td>
           <strong>${a.full_name}</strong>
-          <div style="font-size:0.8rem; color:#868e96;">Applying for: ${a.role_title} (${a.role_company})</div>
+          <div style="font-size:0.8rem; color:#868e96;">${a.email} · ${a.phone}</div>
         </td>
-        <td>
-          <div>${a.email}</div>
-          <div style="font-size:0.8rem; color:#868e96;">${a.phone}</div>
-        </td>
+        <td>${a.role_title} (${a.role_company})</td>
         <td>
           <a href="${a.resume_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">
             📄 View Resume
           </a>
         </td>
-        <td style="font-size:0.84rem; max-width:260px; color:#495057;">${a.cover_letter || "None"}</td>
+        <td>
+          <select class="pipeline-select" data-app-id="${a.id}">
+            <option value="Submitted" ${a.status === 'Submitted' ? 'selected' : ''}>Submitted</option>
+            <option value="Under Review" ${a.status === 'Under Review' ? 'selected' : ''}>Under Review</option>
+            <option value="Shortlisted" ${a.status === 'Shortlisted' ? 'selected' : ''}>Shortlisted</option>
+            <option value="Offered" ${a.status === 'Offered' ? 'selected' : ''}>Offered</option>
+            <option value="Accepted" ${a.status === 'Accepted' ? 'selected' : ''}>Accepted</option>
+            <option value="Declined" ${a.status === 'Declined' ? 'selected' : ''}>Declined</option>
+            <option value="Rejected" ${a.status === 'Rejected' ? 'selected' : ''}>Rejected</option>
+          </select>
+        </td>
         <td style="font-size:0.82rem; color:#868e96;">${formatDate(a.created_at)}</td>
+        <td>
+          <button class="btn btn-primary btn-sm" data-action="generate-offer" data-app-id="${a.id}" data-name="${a.full_name}" data-track="${a.role_title}">
+            📜 Issue Offer
+          </button>
+        </td>
       </tr>
     `).join("");
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load applications.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load applications.</td></tr>`;
   }
 }
+
+// Pipeline Status Change & 1-Click Offer Issuance
+$("adminApplicationsTbody").addEventListener("change", async (e) => {
+  if (e.target.classList.contains("pipeline-select")) {
+    const appId = e.target.getAttribute("data-app-id");
+    const newStatus = e.target.value;
+    try {
+      const res = await fetch(`${API_BASE}/admin/applications/${appId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (res.ok) {
+        showToast(`Application #${appId} moved to ${newStatus}`);
+      }
+    } catch (err) {
+      showToast("Error updating status");
+    }
+  }
+});
+
+$("adminApplicationsTbody").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action='generate-offer']");
+  if (!btn) return;
+  const appId = btn.getAttribute("data-app-id");
+  const internName = btn.getAttribute("data-name");
+  const track = btn.getAttribute("data-track");
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/applications/${appId}/offer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        application_id: Number(appId),
+        intern_name: internName,
+        track: track,
+        start_date: "2026-09-01",
+        end_date: "2026-11-30",
+        stipend_amount: 15000,
+      }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showToast(`🎉 Offer Letter ${json.data.offer_id} issued to ${internName}!`);
+      loadAdminDashboard();
+    } else {
+      showToast(json.error?.message || "Failed to generate offer.");
+    }
+  } catch (err) {
+    showToast("Network error generating offer.");
+  }
+});
+
+async function loadAdminProofs() {
+  const tbody = $("adminProofsTbody");
+  if (!tbody) return;
+  try {
+    const res = await fetch(`${API_BASE}/admin/linkedin-proofs`);
+    const json = await res.json();
+    const proofs = json.data || [];
+    if (proofs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No LinkedIn proofs submitted yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = proofs.map((p) => {
+      let stBadge = `<span class="badge badge-mode">⏳ ${p.status}</span>`;
+      if (p.status === "Approved") stBadge = `<span class="badge badge-status-open">✅ Approved</span>`;
+      if (p.status === "Rejected") stBadge = `<span class="badge badge-danger">❌ Rejected</span>`;
+
+      return `
+        <tr>
+          <td>
+            <strong>${p.intern_name}</strong>
+            <div style="font-size:0.8rem; color:#868e96;">${p.college} · ${p.domain}</div>
+          </td>
+          <td><span class="badge badge-category">${p.proof_type.toUpperCase()}</span></td>
+          <td><a href="${p.post_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">🔗 View Post</a></td>
+          <td><a href="${p.screenshot_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">🖼️ Screenshot</a></td>
+          <td>${stBadge}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-success btn-sm" data-action="review-proof" data-proof-id="${p.id}" data-status="Approved">✅ Approve</button>
+              <button class="btn btn-outline btn-sm" data-action="review-proof" data-proof-id="${p.id}" data-status="Rejected">❌ Reject</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load proofs.</td></tr>`;
+  }
+}
+
+$("adminProofsTbody")?.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action='review-proof']");
+  if (!btn) return;
+  const proofId = btn.getAttribute("data-proof-id");
+  const status = btn.getAttribute("data-status");
+  try {
+    const res = await fetch(`${API_BASE}/admin/linkedin-proofs/${proofId}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, review_notes: status === "Approved" ? "Post verified!" : "Incomplete proof." }),
+    });
+    if (res.ok) {
+      showToast(`Proof marked as ${status}`);
+      loadAdminProofs();
+    }
+  } catch (e) {
+    showToast("Error reviewing proof.");
+  }
+});
+
+async function loadAdminProjects() {
+  const tbody = $("adminProjectsTbody");
+  if (!tbody) return;
+  try {
+    const res = await fetch(`${API_BASE}/admin/final-projects`);
+    const json = await res.json();
+    const projects = json.data || [];
+    if (projects.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No final projects submitted yet.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = projects.map((fp) => {
+      let stBadge = `<span class="badge badge-mode">⏳ ${fp.status}</span>`;
+      if (fp.status === "Approved") stBadge = `<span class="badge badge-status-open">✅ Approved</span>`;
+      if (fp.status === "Rejected") stBadge = `<span class="badge badge-danger">❌ Rejected</span>`;
+
+      return `
+        <tr>
+          <td>
+            <strong>${fp.intern_name}</strong>
+            <div style="font-size:0.8rem; color:#868e96;">${fp.domain}</div>
+          </td>
+          <td><strong>${fp.project_title}</strong></td>
+          <td>
+            <a href="${fp.repo_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">💻 Code</a> · 
+            <a href="${fp.report_pdf_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">📄 PDF</a>
+            ${fp.live_url ? ` · <a href="${fp.live_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">🚀 Live</a>` : ""}
+          </td>
+          <td>${"⭐".repeat(fp.feedback_rating || 5)}</td>
+          <td>${stBadge}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-success btn-sm" data-action="review-project" data-proj-id="${fp.id}" data-status="Approved">✅ Approve</button>
+              <button class="btn btn-outline btn-sm" data-action="review-project" data-proj-id="${fp.id}" data-status="Rejected">❌ Reject</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load projects.</td></tr>`;
+  }
+}
+
+$("adminProjectsTbody")?.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action='review-project']");
+  if (!btn) return;
+  const projId = btn.getAttribute("data-proj-id");
+  const status = btn.getAttribute("data-status");
+  try {
+    const res = await fetch(`${API_BASE}/admin/final-projects/${projId}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, review_notes: status === "Approved" ? "Excellent capstone!" : "Revise and resubmit." }),
+    });
+    if (res.ok) {
+      showToast(`Final Project marked as ${status}`);
+      loadAdminProjects();
+    }
+  } catch (e) {
+    showToast("Error reviewing project.");
+  }
+});
+
+async function loadAdminAuditLogs() {
+  const tbody = $("adminAuditTbody");
+  if (!tbody) return;
+  try {
+    const res = await fetch(`${API_BASE}/admin/audit-logs?limit=50`);
+    const json = await res.json();
+    const logs = json.data || [];
+    if (logs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted" style="padding:24px;">No audit records found.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = logs.map((l) => `
+      <tr>
+        <td style="font-size:0.82rem; color:#868e96;">${formatDate(l.timestamp)}</td>
+        <td><span class="badge badge-category">${l.action}</span></td>
+        <td><strong>${l.actor}</strong></td>
+        <td style="font-size:0.84rem; color:#495057;">${l.details}</td>
+      </tr>
+    `).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger">Failed to load audit logs.</td></tr>`;
+  }
+}
+
 
 // Admin Subtabs Switching
 document.querySelectorAll(".subtab").forEach((tab) => {
@@ -554,11 +860,12 @@ $("refreshAdminBtn").addEventListener("click", () => {
 });
 
 // -------------------------------------------------------------
-// 4. Authentic Verified Certificate Engine
+// 4. Authentic Verified Certificate & LOR Engine
 // -------------------------------------------------------------
 function renderCertificate(cert) {
   currentViewingCertificate = cert;
 
+  // Certificate fields
   $("certInternName").textContent = cert.intern_name.toUpperCase();
   $("certCollege").textContent = `from ${cert.college}`;
   $("certDomain").textContent = cert.domain;
@@ -567,11 +874,38 @@ function renderCertificate(cert) {
   $("certGrade").textContent = cert.grade || "Outstanding (A+)";
   $("certIdDisplay").textContent = cert.certificate_id;
 
-  const verifyUrl = `${API_BASE}/certificates/${cert.certificate_id}`;
+  const verifyUrl = `${API_BASE}/verify/${cert.certificate_id}`;
   $("certVerifyUrl").textContent = verifyUrl;
+
+  // LOR fields
+  $("lorRefId").textContent = cert.certificate_id;
+  $("lorDate").textContent = formatDate(cert.completion_date);
+  $("lorInternName").textContent = cert.intern_name;
+  $("lorCollege").textContent = cert.college;
+  $("lorDomain").textContent = cert.domain;
+
+  // Reset to Certificate view by default
+  $("tabDocCertBtn").className = "btn btn-sm btn-primary active";
+  $("tabDocLorBtn").className = "btn btn-sm btn-outline";
+  $("certificatePaper").hidden = false;
+  $("lorPaper").hidden = true;
 
   $("certificateModal").hidden = false;
 }
+
+$("tabDocCertBtn").addEventListener("click", () => {
+  $("tabDocCertBtn").className = "btn btn-sm btn-primary active";
+  $("tabDocLorBtn").className = "btn btn-sm btn-outline";
+  $("certificatePaper").hidden = false;
+  $("lorPaper").hidden = true;
+});
+
+$("tabDocLorBtn").addEventListener("click", () => {
+  $("tabDocLorBtn").className = "btn btn-sm btn-primary active";
+  $("tabDocCertBtn").className = "btn btn-sm btn-outline";
+  $("certificatePaper").hidden = true;
+  $("lorPaper").hidden = false;
+});
 
 $("closeCertModal").addEventListener("click", () => { $("certificateModal").hidden = true; });
 
@@ -581,7 +915,7 @@ $("printCertBtn").addEventListener("click", () => {
 
 $("copyCertLinkBtn").addEventListener("click", () => {
   if (currentViewingCertificate) {
-    const url = `${API_BASE}/certificates/${currentViewingCertificate.certificate_id}`;
+    const url = `${API_BASE}/verify/${currentViewingCertificate.certificate_id}`;
     if (navigator.clipboard) {
       navigator.clipboard.writeText(url);
       showToast("Verification link copied to clipboard! 📋");
@@ -590,6 +924,371 @@ $("copyCertLinkBtn").addEventListener("click", () => {
     }
   }
 });
+
+// CSV Export Buttons
+$("exportAppsCsvBtn")?.addEventListener("click", () => {
+  window.open(`${API_BASE}/admin/export/csv?type=applications`, "_blank");
+});
+$("exportInternsCsvBtn")?.addEventListener("click", () => {
+  window.open(`${API_BASE}/admin/export/csv?type=interns`, "_blank");
+});
+$("exportSubsCsvBtn")?.addEventListener("click", () => {
+  window.open(`${API_BASE}/admin/export/csv?type=submissions`, "_blank");
+});
+
+// -------------------------------------------------------------
+// 4B. Screening Assessment Workflow
+// -------------------------------------------------------------
+let screeningQuizId = 1;
+let screeningTimerInterval = null;
+let tabSwitchesCount = 0;
+let copyPasteCount = 0;
+
+$("openScreeningBtn")?.addEventListener("click", () => {
+  if (!currentInternUser) {
+    showToast("Please register or log in first.");
+    return;
+  }
+  $("screeningModal").hidden = false;
+  tabSwitchesCount = 0;
+  copyPasteCount = 0;
+  loadScreeningQuestions();
+});
+
+$("closeScreeningModal")?.addEventListener("click", () => {
+  clearInterval(screeningTimerInterval);
+  $("screeningModal").hidden = true;
+});
+$("cancelScreeningBtn")?.addEventListener("click", () => {
+  clearInterval(screeningTimerInterval);
+  $("screeningModal").hidden = true;
+});
+
+async function loadScreeningQuestions() {
+  const container = $("screeningQuestionsList");
+  container.innerHTML = `<p class="text-muted text-center">Loading assessment questions...</p>`;
+
+  try {
+    const res = await fetch(`${API_BASE}/screening/quiz?track=${encodeURIComponent(currentInternUser?.domain || "Full Stack Web Development")}`);
+    const json = await res.json();
+    const quiz = json.data;
+    screeningQuizId = quiz.id;
+    $("screeningTitle").textContent = quiz.title;
+
+    let timeLeft = (quiz.time_limit_mins || 15) * 60;
+    clearInterval(screeningTimerInterval);
+    screeningTimerInterval = setInterval(() => {
+      timeLeft--;
+      const mins = Math.floor(timeLeft / 60);
+      const secs = timeLeft % 60;
+      $("screeningTimer").textContent = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+      if (timeLeft <= 0) {
+        clearInterval(screeningTimerInterval);
+        showToast("Time's up! Auto-submitting assessment...");
+        $("screeningForm").requestSubmit();
+      }
+    }, 1000);
+
+    container.innerHTML = quiz.questions.map((q, idx) => `
+      <div class="screening-q-box">
+        <h5>Q${idx + 1}. ${q.question}</h5>
+        <div class="quiz-options-group">
+          ${q.options.map((opt, optIdx) => `
+            <label>
+              <input type="radio" name="q_${q.id}" value="${optIdx}" required />
+              <span>${opt}</span>
+            </label>
+          `).join("")}
+        </div>
+      </div>
+    `).join("");
+  } catch (e) {
+    container.innerHTML = `<p class="text-danger text-center">Failed to load screening quiz.</p>`;
+  }
+}
+
+// Anti-cheat tracking
+window.addEventListener("blur", () => {
+  if ($("screeningModal") && !$("screeningModal").hidden) {
+    tabSwitchesCount++;
+    showToast(`⚠️ Anti-Cheat: Tab switch detected! (Count: ${tabSwitchesCount})`);
+  }
+});
+window.addEventListener("copy", () => {
+  if ($("screeningModal") && !$("screeningModal").hidden) {
+    copyPasteCount++;
+  }
+});
+window.addEventListener("paste", () => {
+  if ($("screeningModal") && !$("screeningModal").hidden) {
+    copyPasteCount++;
+  }
+});
+
+$("screeningForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentInternUser) return;
+  clearInterval(screeningTimerInterval);
+
+  const answers = {};
+  const formData = new FormData($("screeningForm"));
+  for (const [key, val] of formData.entries()) {
+    if (key.startsWith("q_")) {
+      const qid = key.replace("q_", "");
+      answers[qid] = Number(val);
+    }
+  }
+
+  const payload = {
+    quiz_id: screeningQuizId,
+    answers,
+    tab_switches: tabSwitchesCount,
+    copy_paste_count: copyPasteCount,
+  };
+
+  try {
+    const res = await fetch(`${API_BASE}/users/${currentInternUser.id}/screening/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showToast(json.message);
+      $("screeningModal").hidden = true;
+      loadWorkflowCards();
+    } else {
+      showToast(json.error?.message || "Failed to submit assessment.");
+    }
+  } catch (err) {
+    showToast("Network error submitting assessment.");
+  }
+});
+
+// -------------------------------------------------------------
+// 4C. Offer Letter & LinkedIn Proof
+// -------------------------------------------------------------
+$("openOfferBtn")?.addEventListener("click", () => {
+  if (!window.currentInternOffer) {
+    showToast("No offer letter issued yet. Submit an application to receive an offer!");
+    return;
+  }
+  const o = window.currentInternOffer;
+  $("offerIdText").textContent = o.offer_id;
+  $("offerIssuedAt").textContent = formatDate(o.issued_at || o.start_date);
+  $("offerInternName").textContent = o.intern_name;
+  $("offerTrackText").textContent = `${o.track} Engineering Intern`;
+  $("offerBatch").textContent = o.batch || "2026-B1";
+  $("offerDuration").textContent = o.duration || "3 Months";
+  $("offerStartDate").textContent = o.start_date;
+  $("offerStipend").textContent = `₹${Number(o.stipend_amount).toLocaleString("en-IN")} / month`;
+  $("offerMentor").textContent = o.mentor_name || "Senior Engineering Lead";
+  $("offerCurrentStatus").textContent = o.status;
+  $("offerCurrentStatus").className = o.status === "Accepted" ? "badge badge-status-open" : "badge badge-mode";
+
+  $("offerModal").hidden = false;
+});
+
+$("closeOfferModal")?.addEventListener("click", () => { $("offerModal").hidden = true; });
+
+$("acceptOfferBtn")?.addEventListener("click", async () => {
+  if (!window.currentInternOffer) return;
+  try {
+    const res = await fetch(`${API_BASE}/offers/${window.currentInternOffer.offer_id}/respond`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "accept" }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showToast("🎉 Offer Accepted! Welcome aboard. Please submit your LinkedIn proof.");
+      window.currentInternOffer = json.data;
+      $("offerCurrentStatus").textContent = "Accepted";
+      $("offerCurrentStatus").className = "badge badge-status-open";
+      loadWorkflowCards();
+    }
+  } catch (e) {
+    showToast("Error accepting offer.");
+  }
+});
+
+$("declineOfferBtn")?.addEventListener("click", async () => {
+  if (!window.currentInternOffer) return;
+  if (!confirm("Are you sure you want to decline this offer?")) return;
+  try {
+    const res = await fetch(`${API_BASE}/offers/${window.currentInternOffer.offer_id}/respond`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "decline" }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showToast("Offer declined.");
+      window.currentInternOffer = json.data;
+      $("offerCurrentStatus").textContent = "Declined";
+      loadWorkflowCards();
+    }
+  } catch (e) {
+    showToast("Error updating offer.");
+  }
+});
+
+// LinkedIn Proof Modal
+$("openLinkedinProofBtn")?.addEventListener("click", () => {
+  $("linkedinProofForm").reset();
+  $("linkedinProofModal").hidden = false;
+});
+$("closeProofModal")?.addEventListener("click", () => { $("linkedinProofModal").hidden = true; });
+$("cancelProofBtn")?.addEventListener("click", () => { $("linkedinProofModal").hidden = true; });
+
+$("copyCaptionBtn")?.addEventListener("click", () => {
+  const text = $("suggestedPostText").textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text);
+    showToast("Caption copied to clipboard! 📋");
+  } else {
+    showToast(text);
+  }
+});
+
+$("linkedinProofForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentInternUser) return;
+  const proofType = $("proofTypeSelect").value;
+  const postUrl = $("proofPostUrl").value.trim();
+  const screenshotUrl = $("proofScreenshotUrl").value.trim();
+
+  try {
+    const res = await fetch(`${API_BASE}/users/${currentInternUser.id}/onboarding/linkedin-proof`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ proof_type: proofType, post_url: postUrl, screenshot_url: screenshotUrl }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showToast("🚀 LinkedIn proof submitted for mentor review!");
+      $("linkedinProofModal").hidden = true;
+      loadWorkflowCards();
+    } else {
+      showToast(json.error?.message || "Failed to submit proof.");
+    }
+  } catch (e) {
+    showToast("Network error submitting proof.");
+  }
+});
+
+// Weekly Report Modal
+$("openWeeklyReportBtn")?.addEventListener("click", () => {
+  $("weeklyReportForm").reset();
+  $("weeklyReportModal").hidden = false;
+});
+$("closeWeeklyReportModal")?.addEventListener("click", () => { $("weeklyReportModal").hidden = true; });
+$("cancelWeeklyReportBtn")?.addEventListener("click", () => { $("weeklyReportModal").hidden = true; });
+
+$("weeklyReportForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentInternUser) return;
+  const weekNumber = Number($("reportWeekNumber").value);
+  const doneSummary = $("reportDoneSummary").value.trim();
+  const blockers = $("reportBlockers").value.trim();
+  const nextWeek = $("reportNextWeek").value.trim();
+
+  try {
+    const res = await fetch(`${API_BASE}/users/${currentInternUser.id}/reports/weekly`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ week_number: weekNumber, done_summary: doneSummary, blockers, next_week: nextWeek }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showToast("✨ Weekly report logged successfully!");
+      $("weeklyReportModal").hidden = true;
+      loadWorkflowCards();
+    } else {
+      showToast(json.error?.message || "Failed to submit report.");
+    }
+  } catch (e) {
+    showToast("Network error submitting report.");
+  }
+});
+
+// Final Project Modal
+$("openFinalProjectBtn")?.addEventListener("click", () => {
+  $("finalProjectForm").reset();
+  $("finalProjectModal").hidden = false;
+});
+$("closeFinalProjectModal")?.addEventListener("click", () => { $("finalProjectModal").hidden = true; });
+$("cancelFinalProjectBtn")?.addEventListener("click", () => { $("finalProjectModal").hidden = true; });
+
+$("finalProjectForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentInternUser) return;
+  const projectTitle = $("fpProjectTitle").value.trim();
+  const repoUrl = $("fpRepoUrl").value.trim();
+  const liveUrl = $("fpLiveUrl").value.trim();
+  const reportPdf = $("fpReportPdf").value.trim();
+  const selfAssessment = $("fpSelfAssessment").value.trim();
+  const feedbackRating = Number($("fpFeedbackRating").value);
+  const feedbackText = $("fpFeedbackText").value.trim();
+
+  try {
+    const res = await fetch(`${API_BASE}/users/${currentInternUser.id}/final-project`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_title: projectTitle,
+        repo_url: repoUrl,
+        live_url: liveUrl,
+        report_pdf_url: reportPdf,
+        self_assessment: selfAssessment,
+        feedback_rating: feedbackRating,
+        feedback_text: feedbackText,
+      }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      showToast("🎉 Final Capstone Project submitted!");
+      $("finalProjectModal").hidden = true;
+      loadWorkflowCards();
+    } else {
+      showToast(json.error?.message || "Failed to submit capstone.");
+    }
+  } catch (e) {
+    showToast("Network error submitting capstone.");
+  }
+});
+
+// Notifications Center Modal
+$("notifBtn")?.addEventListener("click", async () => {
+  if (!currentInternUser) {
+    showToast("Log into your intern account to view notifications.");
+    return;
+  }
+  const list = $("notificationsList");
+  list.innerHTML = `<p class="text-muted text-center">Loading notifications...</p>`;
+  $("notificationsModal").hidden = false;
+
+  try {
+    const res = await fetch(`${API_BASE}/notifications?user_id=${currentInternUser.id}`);
+    const json = await res.json();
+    const notifs = json.data || [];
+    if (notifs.length === 0) {
+      list.innerHTML = `<p class="text-muted text-center" style="padding:20px;">No notifications yet.</p>`;
+      return;
+    }
+    list.innerHTML = notifs.map((n) => `
+      <div class="notif-item ${n.is_read ? 'read' : ''}">
+        <div class="notif-title">${n.title}</div>
+        <div class="notif-msg">${n.message}</div>
+        <div class="notif-time">${formatDate(n.created_at)}</div>
+      </div>
+    `).join("");
+  } catch (e) {
+    list.innerHTML = `<p class="text-danger text-center">Failed to load notifications.</p>`;
+  }
+});
+$("closeNotifModal")?.addEventListener("click", () => { $("notificationsModal").hidden = true; });
+
 
 // -------------------------------------------------------------
 // 5. Explore Internships (Public Board)
@@ -969,6 +1668,15 @@ window.addEventListener("click", (e) => {
   if (e.target === $("postModal")) $("postModal").hidden = true;
   if (e.target === $("submitTaskModal")) $("submitTaskModal").hidden = true;
   if (e.target === $("certificateModal")) $("certificateModal").hidden = true;
+  if (e.target === $("screeningModal")) {
+    clearInterval(screeningTimerInterval);
+    $("screeningModal").hidden = true;
+  }
+  if (e.target === $("offerModal")) $("offerModal").hidden = true;
+  if (e.target === $("linkedinProofModal")) $("linkedinProofModal").hidden = true;
+  if (e.target === $("weeklyReportModal")) $("weeklyReportModal").hidden = true;
+  if (e.target === $("finalProjectModal")) $("finalProjectModal").hidden = true;
+  if (e.target === $("notificationsModal")) $("notificationsModal").hidden = true;
 });
 
 // On Load

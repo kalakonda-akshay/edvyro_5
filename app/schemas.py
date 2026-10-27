@@ -1,13 +1,17 @@
 import json
 import re
 from datetime import date
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 WorkMode = Literal["remote", "onsite", "hybrid"]
 Status = Literal["open", "closed"]
-UserRole = Literal["intern", "admin"]
+UserRole = Literal["intern", "mentor", "admin"]
 SubmissionStatus = Literal["pending", "approved", "rejected"]
+ApplicationStatus = Literal["Submitted", "Under Review", "Shortlisted", "Offered", "Accepted", "Declined", "Rejected"]
+OfferResponseStatus = Literal["accept", "decline"]
+ProofType = Literal["offer", "completion"]
+ProofStatus = Literal["Pending", "Approved", "Rejected", "Resubmit"]
 
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 PHONE_REGEX = re.compile(r"^\+?[0-9\s\-()]{7,25}$")
@@ -147,3 +151,95 @@ class CertificateIssue(BaseModel):
     internship_title: Optional[str] = "Full Stack Engineering Internship"
     company: Optional[str] = "InternshipChesko Tech Labs"
     grade: Optional[str] = "Outstanding (A+)"
+    lor_text: Optional[str] = ""
+
+
+class ApplicationStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: ApplicationStatus
+    review_notes: Optional[str] = Field(default="", max_length=1000)
+
+
+class QuizSubmissionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    quiz_id: int
+    answers: Dict[str, int] = Field(description="Map of question index or ID to chosen option index")
+    tab_switches: int = Field(default=0, ge=0)
+    copy_paste_count: int = Field(default=0, ge=0)
+
+
+class OfferCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    application_id: int
+    user_id: Optional[int] = None
+    intern_name: str = Field(min_length=2, max_length=100)
+    track: str = Field(min_length=2, max_length=100)
+    batch: Optional[str] = "2026-B1"
+    duration: Optional[str] = "3 Months"
+    start_date: str
+    end_date: str
+    stipend_amount: int = Field(default=15000, ge=0)
+    mentor_name: Optional[str] = "Senior Engineering Lead"
+    signatory_name: Optional[str] = "Program Director"
+    expires_at: Optional[str] = None
+
+
+class OfferAction(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    action: OfferResponseStatus
+
+
+class LinkedInProofCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    proof_type: ProofType = "offer"
+    post_url: str = Field(min_length=15, max_length=500, description="LinkedIn post URL")
+    screenshot_url: str = Field(min_length=8, max_length=500, description="Screenshot image URL")
+
+    @field_validator("post_url")
+    @classmethod
+    def validate_linkedin_url(cls, v: str) -> str:
+        clean = v.strip()
+        if "linkedin.com" not in clean.lower():
+            raise ValueError("URL must be a valid LinkedIn post link (e.g. https://www.linkedin.com/posts/...)")
+        return clean
+
+
+class LinkedInProofReview(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: ProofStatus
+    review_notes: Optional[str] = Field(default="", max_length=1000)
+
+
+class WeeklyReportCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    week_number: int = Field(ge=1, le=52)
+    done_summary: str = Field(min_length=10, max_length=2000)
+    blockers: Optional[str] = Field(default="", max_length=1000)
+    next_week: str = Field(min_length=10, max_length=2000)
+
+
+class FinalProjectCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    project_title: str = Field(min_length=3, max_length=150)
+    repo_url: str = Field(min_length=8, max_length=500)
+    live_url: Optional[str] = Field(default="", max_length=500)
+    report_pdf_url: str = Field(min_length=8, max_length=500)
+    self_assessment: str = Field(min_length=20, max_length=3000)
+    feedback_rating: int = Field(ge=1, le=5)
+    feedback_text: Optional[str] = Field(default="", max_length=2000)
+
+
+class FinalProjectReview(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: Literal["Approved", "Rejected"]
+    review_notes: Optional[str] = Field(default="", max_length=1000)
+

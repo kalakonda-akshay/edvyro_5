@@ -33,6 +33,7 @@
       </nav>
 
       <div class="topbar-actions">
+        <button id="notifBtn" class="btn btn-ghost btn-sm">🔔 Notifications <span id="notifBadge" class="nav-badge alert" hidden>0</span></button>
         <button id="postInternshipBtn" class="btn btn-primary btn-sm">+ Post Internship</button>
         <button id="savedBtn" class="btn btn-ghost btn-sm">♥ Saved (<span id="savedCount">0</span>)</button>
       </div>
@@ -230,6 +231,50 @@
           </div>
         </div>
 
+        <!-- 5-Stage Onboarding & Completion Workflow Cards -->
+        <div class="workflow-grid">
+          <div class="workflow-card card">
+            <div class="workflow-icon">📝</div>
+            <h4>Screening Assessment</h4>
+            <p class="text-muted">Auto-graded test with timer and anti-cheat tracking.</p>
+            <div id="screeningStatusBadge" class="badge badge-status-open">Status: Pending</div>
+            <button id="openScreeningBtn" class="btn btn-outline btn-sm full mt-2">Take Screening Test</button>
+          </div>
+
+          <div class="workflow-card card">
+            <div class="workflow-icon">📜</div>
+            <h4>Offer Letter</h4>
+            <p class="text-muted">Official signed offer letter with QR code & stipend.</p>
+            <div id="offerStatusBadge" class="badge badge-status-open">Status: Checking...</div>
+            <button id="openOfferBtn" class="btn btn-outline btn-sm full mt-2">View Offer Letter</button>
+          </div>
+
+          <div class="workflow-card card">
+            <div class="workflow-icon">🔗</div>
+            <h4>LinkedIn Post Proof</h4>
+            <p class="text-muted">Onboarding offer post & completion announcement.</p>
+            <div id="linkedinProofStatusBadge" class="badge badge-status-closed">Status: Required</div>
+            <button id="openLinkedinProofBtn" class="btn btn-outline btn-sm full mt-2">Submit Proof</button>
+          </div>
+
+          <div class="workflow-card card">
+            <div class="workflow-icon">📊</div>
+            <h4>Weekly Reports</h4>
+            <p class="text-muted">Log weekly deliverables and blockers for mentors.</p>
+            <div id="weeklyReportBadge" class="badge badge-status-open">0 Reports · Missed: 0</div>
+            <button id="openWeeklyReportBtn" class="btn btn-outline btn-sm full mt-2">Submit Report</button>
+          </div>
+
+          <div class="workflow-card card">
+            <div class="workflow-icon">🚀</div>
+            <h4>Capstone Project</h4>
+            <p class="text-muted">Submit report PDF, live URL, and course evaluation.</p>
+            <div id="finalProjectBadge" class="badge badge-status-closed">Status: Pending</div>
+            <button id="openFinalProjectBtn" class="btn btn-outline btn-sm full mt-2">Submit Capstone</button>
+          </div>
+        </div>
+
+
         <!-- Task Completion Progress Banner -->
         <div class="progress-card card">
           <div class="progress-header">
@@ -281,12 +326,15 @@
     <div class="container section-padding">
       <div class="admin-top-header">
         <div>
-          <span class="modal-badge">🛡️ Administration & Oversight</span>
+          <span class="modal-badge">🛡️ Administration & Mentorship Oversight</span>
           <h2>Platform Management & Review Operations</h2>
-          <p class="text-muted">Review task submissions, approve intern completions, issue certificates, and oversee internship applicants.</p>
+          <p class="text-muted">Review task submissions, approve intern completions, issue certificates, oversee applicant pipeline, and audit platform security.</p>
         </div>
-        <div>
-          <button id="refreshAdminBtn" class="btn btn-outline btn-sm">↻ Sync Metrics</button>
+        <div class="admin-actions-bar">
+          <button id="exportAppsCsvBtn" class="btn btn-outline btn-sm">📥 Export Applications</button>
+          <button id="exportInternsCsvBtn" class="btn btn-outline btn-sm">📥 Export Interns</button>
+          <button id="exportSubsCsvBtn" class="btn btn-outline btn-sm">📥 Export Submissions</button>
+          <button id="refreshAdminBtn" class="btn btn-primary btn-sm">↻ Sync Metrics</button>
         </div>
       </div>
 
@@ -316,9 +364,12 @@
 
       <!-- Admin Sub-Navigation Tabs -->
       <div class="admin-subtabs">
-        <button class="subtab active" data-subtab="admin-tab-reviews">📝 Task Submissions Review (<span id="adminPendingCount">0</span>)</button>
+        <button class="subtab active" data-subtab="admin-tab-reviews">📝 Task Reviews (<span id="adminPendingCount">0</span>)</button>
+        <button class="subtab" data-subtab="admin-tab-applications">💼 Applications & Pipeline</button>
+        <button class="subtab" data-subtab="admin-tab-proofs">🔗 LinkedIn Proofs</button>
+        <button class="subtab" data-subtab="admin-tab-projects">🚀 Final Projects</button>
         <button class="subtab" data-subtab="admin-tab-interns">👥 Interns Roster</button>
-        <button class="subtab" data-subtab="admin-tab-applications">💼 Job Applications</button>
+        <button class="subtab" data-subtab="admin-tab-audit">📜 Audit Logs</button>
       </div>
 
       <!-- Subtab 1: Task Reviews Table -->
@@ -348,7 +399,88 @@
         </div>
       </div>
 
-      <!-- Subtab 2: Interns Roster -->
+      <!-- Subtab 2: Applications & Pipeline -->
+      <div id="admin-tab-applications" class="admin-tab-content">
+        <div class="card table-card">
+          <div class="card-title-bar">
+            <h3>Candidate Applications & Pipeline Management</h3>
+            <span class="text-muted">Change application stages and issue official Offer Letters.</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Applicant</th>
+                  <th>Internship</th>
+                  <th>Resume</th>
+                  <th>Status Pipeline</th>
+                  <th>Applied At</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminApplicationsTbody">
+                <tr><td colspan="6" class="text-center text-muted">Loading applications...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Subtab 3: LinkedIn Proofs Review Queue -->
+      <div id="admin-tab-proofs" class="admin-tab-content">
+        <div class="card table-card">
+          <div class="card-title-bar">
+            <h3>LinkedIn Proofs Review Queue</h3>
+            <span class="text-muted">Verify interns' onboarding offer posts and completion announcements.</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Intern</th>
+                  <th>Proof Type</th>
+                  <th>Post Link</th>
+                  <th>Screenshot</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminProofsTbody">
+                <tr><td colspan="6" class="text-center text-muted">Loading LinkedIn proofs...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Subtab 4: Final Projects Review Queue -->
+      <div id="admin-tab-projects" class="admin-tab-content">
+        <div class="card table-card">
+          <div class="card-title-bar">
+            <h3>Capstone Final Projects Evaluation</h3>
+            <span class="text-muted">Review capstone repo, report PDF, live deploy, and intern feedback rating.</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Intern</th>
+                  <th>Project Title</th>
+                  <th>Deliverables</th>
+                  <th>Feedback Rating</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminProjectsTbody">
+                <tr><td colspan="6" class="text-center text-muted">Loading final projects...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Subtab 5: Interns Roster -->
       <div id="admin-tab-interns" class="admin-tab-content">
         <div class="card table-card">
           <div class="card-title-bar">
@@ -375,44 +507,50 @@
         </div>
       </div>
 
-      <!-- Subtab 3: Job Applications -->
-      <div id="admin-tab-applications" class="admin-tab-content">
+      <!-- Subtab 6: Platform Audit Logs -->
+      <div id="admin-tab-audit" class="admin-tab-content">
         <div class="card table-card">
           <div class="card-title-bar">
-            <h3>Candidate Job Applications</h3>
-            <span class="text-muted">Applications submitted through the public internship board.</span>
+            <h3>Platform Security & Audit Trail</h3>
+            <span class="text-muted">Immutable log of administrative decisions, reviews, and certificate issuances.</span>
           </div>
           <div class="table-responsive">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Applicant</th>
-                  <th>Contact</th>
-                  <th>Resume Link</th>
-                  <th>Cover Note</th>
-                  <th>Applied At</th>
+                  <th>Timestamp</th>
+                  <th>Action</th>
+                  <th>Actor</th>
+                  <th>Details</th>
                 </tr>
               </thead>
-              <tbody id="adminApplicationsTbody">
-                <tr><td colspan="5" class="text-center text-muted">Loading applications...</td></tr>
+              <tbody id="adminAuditTbody">
+                <tr><td colspan="4" class="text-center text-muted">Loading audit logs...</td></tr>
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
     </div>
   </div>
 
 
   <!-- ======================================================== -->
-  <!-- MODAL: VERIFIED INTERNSHIP CERTIFICATE OF COMPLETION     -->
+  <!-- MODAL: VERIFIED INTERNSHIP CERTIFICATE & LOR             -->
   <!-- ======================================================== -->
   <div id="certificateModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="certDocTitle">
     <div class="modal-box modal-certificate-box">
       <div class="no-print cert-action-toolbar">
-        <button class="btn btn-outline btn-sm" id="copyCertLinkBtn">🔗 Copy Verification Link</button>
-        <button class="btn btn-primary btn-sm" id="printCertBtn">🖨️ Print / Save as PDF</button>
-        <button class="close" id="closeCertModal" aria-label="Close dialog">✕</button>
+        <div class="doc-tab-switch">
+          <button class="btn btn-sm btn-primary active" id="tabDocCertBtn">📜 Certificate</button>
+          <button class="btn btn-sm btn-outline" id="tabDocLorBtn">📑 Letter of Recommendation (LOR)</button>
+        </div>
+        <div class="doc-actions">
+          <button class="btn btn-outline btn-sm" id="copyCertLinkBtn">🔗 Copy Verification Link</button>
+          <button class="btn btn-primary btn-sm" id="printCertBtn">🖨️ Print / Save as PDF</button>
+          <button class="close" id="closeCertModal" aria-label="Close dialog">✕</button>
+        </div>
       </div>
 
       <!-- Authentic Certificate Document Paper -->
@@ -483,11 +621,47 @@
             <div class="cert-verify-bar">
               <div>Certificate ID: <strong id="certIdDisplay">IC-2026-89104</strong></div>
               <div>Status: <span class="badge badge-status-open">VERIFIED & ACCREDITED</span></div>
-              <div>Verify Online: <span id="certVerifyUrl" class="verify-url">https://edvyro5.vercel.app/certificates/IC-2026-89104</span></div>
+              <div>Verify Online: <span id="certVerifyUrl" class="verify-url">https://edvyro5.vercel.app/verify/IC-2026-89104</span></div>
             </div>
           </div>
         </div>
       </div>
+
+      <!-- Authentic Letter of Recommendation (LOR) Document Paper -->
+      <div id="lorPaper" class="certificate-paper lor-paper" hidden>
+        <div class="lor-header">
+          <div class="cert-brand">
+            <span class="cert-logo-icon">🎯</span>
+            <span class="cert-brand-name">INTERNSHIPCHESKO</span>
+          </div>
+          <p class="lor-sub">Academic & Industrial Recommendation Board · Reference ID: <span id="lorRefId">IC-2026-89104</span></p>
+          <hr class="lor-divider" />
+        </div>
+        <div class="lor-body">
+          <p class="lor-date">Date: <span id="lorDate">October 27, 2026</span></p>
+          <h3>LETTER OF RECOMMENDATION</h3>
+          <p class="lor-to"><strong>To Whom It May Concern,</strong></p>
+          <div id="lorContentText" class="lor-text">
+            <p>This is to certify that <strong><span id="lorInternName">Akshay Kalakonda</span></strong> from <strong><span id="lorCollege">Osmania University</span></strong> has successfully completed the intensive industrial internship in <strong><span id="lorDomain">Full Stack Web Development</span></strong> at InternshipChesko Tech Labs.</p>
+            <p>During their tenure, they demonstrated exceptional engineering discipline, technical innovation, and thorough problem-solving capability across all production deliverables. Their work encompassed modern frontend user interfaces, robust RESTful APIs, SQLite WAL data persistence, sliding-window rate limiting, and verified certification workflows.</p>
+            <p>Their technical evaluations consistently ranked in the top percentile, earning an overall performance grade of <strong>Outstanding (A+)</strong>. They demonstrated outstanding collaboration, fast learning capacity, and clean code principles.</p>
+            <p>We strongly recommend them for software engineering roles and industrial fellowships, confident that they will be an invaluable asset to any engineering organization.</p>
+          </div>
+        </div>
+        <div class="lor-footer">
+          <div class="sig-block">
+            <span class="digital-sig">Akshay K.</span>
+            <p><strong>Program Director</strong><br/>InternshipChesko Tech Labs</p>
+          </div>
+          <div class="sig-block">
+            <span class="digital-sig">Dr. P. Sharma</span>
+            <p><strong>Lead Academic Advisor</strong><br/>EdVyro Educational Partner Network</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
     </div>
   </div>
 
@@ -696,6 +870,274 @@
       <div id="detailContent"></div>
     </div>
   </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: SCREENING QUIZ ASSESSMENT (ANTI-CHEAT & TIMER)    -->
+  <!-- ======================================================== -->
+  <div id="screeningModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="screeningTitle">
+    <div class="modal-box modal-lg">
+      <button class="close" id="closeScreeningModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <div class="screening-top-bar">
+          <div>
+            <span class="modal-badge">Technical Screening Assessment</span>
+            <h2 id="screeningTitle">Full Stack & Backend Screening</h2>
+          </div>
+          <div class="timer-box">
+            ⏱️ <span id="screeningTimer">15:00</span>
+          </div>
+        </div>
+        <p class="modal-subtitle">Anti-cheat active: Tab switches and copy-paste events are monitored and logged to the mentor queue.</p>
+      </div>
+
+      <div id="screeningAlert" class="alert-box" hidden></div>
+
+      <form id="screeningForm">
+        <div id="screeningQuestionsList" class="screening-questions"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancelScreeningBtn">Exit</button>
+          <button type="submit" class="btn btn-primary" id="submitScreeningBtn">Submit Assessment 🚀</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: OFFICIAL INTERNSHIP OFFER LETTER                   -->
+  <!-- ======================================================== -->
+  <div id="offerModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="offerDocTitle">
+    <div class="modal-box modal-lg">
+      <button class="close" id="closeOfferModal" aria-label="Close dialog">✕</button>
+      
+      <div class="offer-paper">
+        <div class="offer-header">
+          <div class="brand-group">
+            <span class="cert-logo-icon">🎯</span>
+            <span class="cert-brand-name">INTERNSHIPCHESKO</span>
+          </div>
+          <p class="offer-sub">Official Industrial Internship Appointment & Offer Letter</p>
+        </div>
+
+        <div class="offer-body">
+          <div class="offer-meta-row">
+            <div><strong>Offer Reference:</strong> <span id="offerIdText">OFF-2026-90412</span></div>
+            <div><strong>Date of Issue:</strong> <span id="offerIssuedAt">September 01, 2026</span></div>
+          </div>
+
+          <p class="offer-greeting">Dear <strong id="offerInternName">Akshay Kalakonda</strong>,</p>
+          <p>
+            On behalf of <strong>InternshipChesko Tech Labs</strong> and the <strong>EdVyro Industrial Partner Network</strong>, we are thrilled to extend this formal offer for the position of:
+          </p>
+          <h3 id="offerTrackText" class="offer-track">Full Stack Web Development Engineering Intern</h3>
+
+          <div class="offer-summary-grid">
+            <div class="offer-stat"><strong>Batch:</strong> <span id="offerBatch">2026-B1</span></div>
+            <div class="offer-stat"><strong>Duration:</strong> <span id="offerDuration">3 Months</span></div>
+            <div class="offer-stat"><strong>Start Date:</strong> <span id="offerStartDate">2026-09-01</span></div>
+            <div class="offer-stat"><strong>Monthly Stipend:</strong> <span id="offerStipend">₹15,000 / month</span></div>
+            <div class="offer-stat"><strong>Assigned Mentor:</strong> <span id="offerMentor">Dr. Ramesh Mentor</span></div>
+            <div class="offer-stat"><strong>Status:</strong> <span id="offerCurrentStatus" class="badge badge-status-open">Offered</span></div>
+          </div>
+
+          <p class="offer-note">
+            Upon acceptance, your onboarding requires posting your offer update on LinkedIn and submitting proof. Your production milestone tasks will unlock immediately upon mentor verification.
+          </p>
+
+          <div class="offer-signatures">
+            <div class="sig-block">
+              <span class="digital-sig">Akshay K.</span>
+              <p><strong>Program Director</strong><br/>InternshipChesko Operations</p>
+            </div>
+            <div class="sig-block">
+              <span class="digital-sig">EdVyro Board</span>
+              <p><strong>Authorized Signatory</strong><br/>Industrial Partner Network</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer offer-footer-actions">
+          <button type="button" class="btn btn-outline" id="declineOfferBtn">Decline Offer</button>
+          <button type="button" class="btn btn-primary" id="acceptOfferBtn">Accept Offer & Begin Onboarding ✨</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: LINKEDIN PROOF SUBMISSION                          -->
+  <!-- ======================================================== -->
+  <div id="linkedinProofModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="proofModalTitle">
+    <div class="modal-box">
+      <button class="close" id="closeProofModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">Onboarding & Verification</span>
+        <h2 id="proofModalTitle">Submit LinkedIn Proof</h2>
+        <p class="modal-subtitle">Share your milestone on LinkedIn and submit the link & screenshot for mentor approval.</p>
+      </div>
+
+      <div class="proof-prefill-card">
+        <p><strong>Suggested Post Caption:</strong></p>
+        <p id="suggestedPostText" class="prefill-text">"I'm excited to share that I have joined InternshipChesko for the Full Stack Web Development Internship! 🚀 Excited to build industrial milestones. #InternshipChesko #EdVyro #WebDev"</p>
+        <button type="button" class="btn btn-outline btn-sm" id="copyCaptionBtn">📋 Copy Caption & Hashtags</button>
+      </div>
+
+      <form id="linkedinProofForm">
+        <div class="form-group">
+          <label for="proofTypeSelect">Proof Stage <span class="required">*</span></label>
+          <select id="proofTypeSelect">
+            <option value="offer">Onboarding Offer Post</option>
+            <option value="completion">Completion & Certificate Announcement</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="proofPostUrl">LinkedIn Post URL <span class="required">*</span></label>
+          <input type="url" id="proofPostUrl" placeholder="https://www.linkedin.com/posts/username_..." required />
+        </div>
+
+        <div class="form-group">
+          <label for="proofScreenshotUrl">Post Screenshot Image Link <span class="required">*</span></label>
+          <input type="url" id="proofScreenshotUrl" placeholder="https://drive.google.com/... or https://imgur.com/..." required />
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancelProofBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="submitProofBtn">Submit for Mentor Approval 🚀</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: WEEKLY PROGRESS REPORT SUBMISSION                 -->
+  <!-- ======================================================== -->
+  <div id="weeklyReportModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="weeklyReportTitle">
+    <div class="modal-box">
+      <button class="close" id="closeWeeklyReportModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">Weekly Accountability Log</span>
+        <h2 id="weeklyReportTitle">Submit Weekly Progress Report</h2>
+        <p class="modal-subtitle">Report what you built, any blockers encountered, and your target for the coming week.</p>
+      </div>
+
+      <form id="weeklyReportForm">
+        <div class="form-group">
+          <label for="reportWeekNumber">Week Number <span class="required">*</span></label>
+          <select id="reportWeekNumber">
+            <option value="1">Week 1: Frontend & Architecture</option>
+            <option value="2">Week 2: Backend APIs & Schemas</option>
+            <option value="3">Week 3: Database & WAL Mode</option>
+            <option value="4">Week 4: Security & Hardening</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="reportDoneSummary">Key Accomplishments This Week <span class="required">*</span></label>
+          <textarea id="reportDoneSummary" rows="3" placeholder="Describe the modules you completed and code you merged..." required></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="reportBlockers">Blockers / Challenges (Optional)</label>
+          <textarea id="reportBlockers" rows="2" placeholder="Any technical hurdles or mentor assistance required..."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label for="reportNextWeek">Planned Tasks for Next Week <span class="required">*</span></label>
+          <textarea id="reportNextWeek" rows="3" placeholder="What will you focus on during the upcoming cycle..." required></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancelWeeklyReportBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="submitWeeklyReportBtn">Log Report ✨</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: FINAL CAPSTONE PROJECT SUBMISSION                 -->
+  <!-- ======================================================== -->
+  <div id="finalProjectModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="finalProjectTitle">
+    <div class="modal-box modal-lg">
+      <button class="close" id="closeFinalProjectModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">Capstone Milestone & Evaluation</span>
+        <h2 id="finalProjectTitle">Submit Final Project & Evaluation</h2>
+        <p class="modal-subtitle">Upload your comprehensive project report, live URL, and rate your internship experience.</p>
+      </div>
+
+      <form id="finalProjectForm">
+        <div class="form-group">
+          <label for="fpProjectTitle">Project Title <span class="required">*</span></label>
+          <input type="text" id="fpProjectTitle" placeholder="e.g. Virtual Internship Platform with Verified Credentials" required />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="fpRepoUrl">GitHub Repository Link <span class="required">*</span></label>
+            <input type="url" id="fpRepoUrl" placeholder="https://github.com/username/project" required />
+          </div>
+          <div class="form-group">
+            <label for="fpLiveUrl">Live Deployed URL (Vercel / Cloud)</label>
+            <input type="url" id="fpLiveUrl" placeholder="https://app.vercel.app" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="fpReportPdf">Comprehensive Report PDF URL <span class="required">*</span></label>
+          <input type="url" id="fpReportPdf" placeholder="https://drive.google.com/file/d/... or public PDF link" required />
+        </div>
+
+        <div class="form-group">
+          <label for="fpSelfAssessment">Self-Assessment & Technical Reflection <span class="required">*</span></label>
+          <textarea id="fpSelfAssessment" rows="3" placeholder="Detail your engineering decisions, challenges resolved, and architecture..." required></textarea>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="fpFeedbackRating">Platform & Mentorship Rating (1 to 5 Stars) <span class="required">*</span></label>
+            <select id="fpFeedbackRating">
+              <option value="5">⭐⭐⭐⭐⭐ 5 Stars (Exceptional)</option>
+              <option value="4">⭐⭐⭐⭐ 4 Stars (Very Good)</option>
+              <option value="3">⭐⭐⭐ 3 Stars (Good)</option>
+              <option value="2">⭐⭐ 2 Stars (Average)</option>
+              <option value="1">⭐ 1 Star (Needs Improvement)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="fpFeedbackText">Internship Testimonial & Feedback</label>
+          <textarea id="fpFeedbackText" rows="2" placeholder="Share your experience with the platform curriculum..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancelFinalProjectBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="submitFinalProjectBtn">Submit Capstone Project 🚀</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: NOTIFICATIONS CENTER                              -->
+  <!-- ======================================================== -->
+  <div id="notificationsModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="notifModalTitle">
+    <div class="modal-box">
+      <button class="close" id="closeNotifModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">Activity & Alerts</span>
+        <h2 id="notifModalTitle">Notifications</h2>
+        <p class="modal-subtitle">Stay informed about application reviews, offers, and verified credentials.</p>
+      </div>
+
+      <div id="notificationsList" class="notifications-list">
+        <p class="text-muted text-center">Loading notifications...</p>
+      </div>
+    </div>
+  </div>
+
 
   <!-- Footer -->
   <footer class="footer">
