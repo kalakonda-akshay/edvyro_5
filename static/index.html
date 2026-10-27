@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InternHub – Production Capstone Internship Portal</title>
+  <meta name="description" content="Production-ready internship portal with live REST API integration, rate limiting, and security headers." />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- Navigation Topbar -->
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand-group">
+        <a href="/" class="logo">Intern<span>Hub</span></a>
+        <div id="apiStatusBadge" class="api-badge connecting" aria-live="polite">
+          <span class="status-dot"></span> <span class="status-text">Connecting API...</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="myAppsBtn" class="btn btn-ghost">📋 My Applications</button>
+        <button id="savedBtn" class="btn btn-ghost">♥ Saved (<span id="savedCount">0</span>)</button>
+        <button id="filterToggle" class="btn btn-outline mobile-only" aria-expanded="false" aria-controls="filters">☰ Filters</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Header -->
+  <section class="hero">
+    <div class="container">
+      <span class="hero-tag">Capstone Production Release</span>
+      <h1>Launch Your Career with High-Impact Internships</h1>
+      <p>Discover verified software, design, analytics, and security internships backed by real-time server validation.</p>
+      
+      <div class="search-wrap">
+        <input id="search" type="search" placeholder="Search by job title, company, or skills (e.g., Python, React, Docker)…" aria-label="Search internships" />
+      </div>
+
+      <!-- Quick Category Pills -->
+      <div class="category-pills" id="categoryPills">
+        <button class="pill active" data-category="">All Categories</button>
+        <button class="pill" data-category="Web Development">Web Development</button>
+        <button class="pill" data-category="Software Engineering">Software Engineering</button>
+        <button class="pill" data-category="Data Science">Data Science</button>
+        <button class="pill" data-category="Cybersecurity">Cybersecurity</button>
+        <button class="pill" data-category="DevOps">DevOps</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container" aria-live="assertive"></div>
+
+  <!-- Main Content Layout -->
+  <main class="container layout">
+    <!-- Filter Sidebar -->
+    <aside id="filters" class="filters" aria-label="Internship Filters">
+      <div class="filter-header">
+        <h3>Filter Openings</h3>
+        <button id="closeFiltersBtn" class="btn btn-ghost btn-sm mobile-only" aria-label="Close filters">✕</button>
+      </div>
+
+      <div class="filter-group">
+        <label for="workModeFilter">Work Mode</label>
+        <select id="workModeFilter">
+          <option value="">All Modes</option>
+          <option value="remote">Remote Only</option>
+          <option value="hybrid">Hybrid</option>
+          <option value="onsite">On-Site Only</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="statusFilter">Status</label>
+        <select id="statusFilter">
+          <option value="">All Openings</option>
+          <option value="open">Open Positions Only</option>
+          <option value="closed">Closed Positions</option>
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="stipendFilter">Min Stipend: <span id="stipendLabel">₹0/mo</span></label>
+        <input type="range" id="stipendFilter" min="0" max="25000" step="1000" value="0" />
+      </div>
+
+      <div class="filter-group check">
+        <label><input type="checkbox" id="savedOnly" /> Only show saved internships</label>
+      </div>
+
+      <button id="resetFilters" class="btn btn-outline full">Reset All Filters</button>
+    </aside>
+
+    <!-- Results Section -->
+    <section class="results">
+      <div class="results-toolbar">
+        <div>
+          <h2 id="resultHeading" class="results-title">Available Positions</h2>
+          <p id="resultCount" class="result-count" aria-live="polite">Querying backend API...</p>
+        </div>
+        <div class="toolbar-controls">
+          <label for="sortFilter" class="sr-only">Sort listings</label>
+          <select id="sortFilter" class="select-sm">
+            <option value="default">Sort: Default</option>
+            <option value="stipend-high">Highest Stipend</option>
+            <option value="deadline-soon">Deadline Soonest</option>
+          </select>
+          <button id="refreshBtn" class="btn btn-ghost btn-sm" title="Refresh records from server">↻ Sync</button>
+        </div>
+      </div>
+
+      <!-- State 1: Visible Animated Loading Skeletons -->
+      <div id="loadingState" class="grid skeletons">
+        <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
+        <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
+        <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
+      </div>
+
+      <!-- State 2: Visible Failure / Error State with Interactive Retry -->
+      <div id="failureState" class="state-card failure-card" hidden>
+        <div class="state-icon">⚠️</div>
+        <h3>Failed to Connect to Internship API</h3>
+        <p id="failureMessage">We were unable to establish a secure connection to the backend server. Please verify the API is running.</p>
+        <div class="state-actions">
+          <button id="retryBtn" class="btn btn-primary">↻ Retry Connection</button>
+        </div>
+      </div>
+
+      <!-- State 3: Empty State -->
+      <div id="emptyState" class="state-card empty-card" hidden>
+        <div class="state-icon">🔍</div>
+        <h3>No internships match your active filters</h3>
+        <p>Try clearing some filters or searching for alternative tech keywords.</p>
+        <button id="clearFiltersBtn" class="btn btn-outline">Clear All Filters</button>
+      </div>
+
+      <!-- State 4: Rendered Internship Grid -->
+      <div id="internshipGrid" class="grid" hidden></div>
+    </section>
+  </main>
+
+  <!-- Modal 1: Application Form Modal -->
+  <div id="applyModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="applyModalTitle">
+    <div class="modal-box">
+      <button class="close" id="closeApplyModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">Direct Application</span>
+        <h2 id="applyModalTitle">Apply for Role</h2>
+        <p id="applyModalSubtitle" class="modal-subtitle">Company · Location</p>
+      </div>
+
+      <div id="applyAlert" class="alert-box" hidden></div>
+
+      <form id="applyForm" novalidate>
+        <input type="hidden" id="applyInternshipId" />
+
+        <div class="form-group">
+          <label for="fullName">Full Legal Name <span class="required">*</span></label>
+          <input type="text" id="fullName" placeholder="e.g. Akshay Kalakonda" required minlength="2" maxlength="100" />
+          <span class="field-error" id="err-fullName"></span>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="email">Email Address <span class="required">*</span></label>
+            <input type="email" id="email" placeholder="e.g. akshay@example.com" required maxlength="120" />
+            <span class="field-error" id="err-email"></span>
+          </div>
+          <div class="form-group">
+            <label for="phone">Phone Number <span class="required">*</span></label>
+            <input type="tel" id="phone" placeholder="e.g. +91 9876543210" required minlength="7" maxlength="25" />
+            <span class="field-error" id="err-phone"></span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="resumeUrl">Resume Link (Public Drive, Portfolio, or LinkedIn) <span class="required">*</span></label>
+          <input type="url" id="resumeUrl" placeholder="https://drive.google.com/... or https://portfolio.com/cv.pdf" required maxlength="500" />
+          <span class="field-error" id="err-resumeUrl"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="coverLetter">Cover Statement & Relevant Experience (Optional)</label>
+          <textarea id="coverLetter" rows="4" maxlength="2000" placeholder="Highlight relevant coursework, projects, or why you're passionate about this team..."></textarea>
+          <div class="char-count"><span id="charCount">0</span>/2000</div>
+          <span class="field-error" id="err-coverLetter"></span>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancelApplyBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="submitApplyBtn">
+            <span class="btn-text">Submit Application</span>
+            <span class="spinner" hidden></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Internship Details View -->
+  <div id="detailModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <div class="modal-box modal-lg">
+      <button class="close" id="closeDetailModal" aria-label="Close dialog">✕</button>
+      <div id="detailContent"></div>
+    </div>
+  </div>
+
+  <!-- Modal 3: "My Applications" Tracking Modal -->
+  <div id="myAppsModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="myAppsTitle">
+    <div class="modal-box">
+      <button class="close" id="closeMyAppsModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">Application Status</span>
+        <h2 id="myAppsTitle">My Submitted Applications</h2>
+        <p class="modal-subtitle">Enter your email address to look up all positions you've applied for.</p>
+      </div>
+
+      <div class="lookup-bar">
+        <input type="email" id="lookupEmail" placeholder="Enter your application email..." />
+        <button id="lookupBtn" class="btn btn-primary">Check Status</button>
+      </div>
+
+      <div id="myAppsResults" class="my-apps-list">
+        <p class="text-muted text-center" style="margin-top: 20px;">No applications loaded yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-content">
+      <p>© <span id="year"></span> InternHub Capstone Portal. Protected by Sliding-Window Rate Limiting, CSP & Parameterized Queries.</p>
+      <div class="footer-links">
+        <a href="/docs" target="_blank" rel="noopener">Interactive API Docs</a>
+        <a href="/health" target="_blank" rel="noopener">Health Telemetry</a>
+        <a href="https://github.com/kalakonda-akshay/edvyro_5" target="_blank" rel="noopener">GitHub Repository</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
