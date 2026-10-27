@@ -1024,3 +1024,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .notif-msg { font-size: 0.84rem; color: #495057; }
 .notif-time { font-size: 0.74rem; color: #868e96; }
 
+#notificationsModal {
+  z-index: 120;
+}
+#notificationsModal .modal-box {
+  max-width: 480px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3);
+}
+

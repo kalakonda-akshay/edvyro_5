@@ -9,7 +9,9 @@
  * - Public Job Board, Filters, and Job Applications
  */
 
-const API_BASE = window.location.origin.includes(":80") ? window.location.origin : "http://127.0.0.1:8000";
+const API_BASE = window.location.protocol.startsWith("http")
+  ? window.location.origin
+  : "http://127.0.0.1:8000";
 
 // App State
 let allInternships = [];
@@ -1285,26 +1287,33 @@ $("notifBtn")?.addEventListener("click", async () => {
     return;
   }
   const list = $("notificationsList");
-  list.innerHTML = `<p class="text-muted text-center">Loading notifications...</p>`;
+  list.innerHTML = `<p class="text-muted text-center" style="padding:24px;">Loading notifications...</p>`;
   $("notificationsModal").hidden = false;
 
   try {
-    const res = await fetch(`${API_BASE}/notifications?user_id=${currentInternUser.id}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const res = await fetch(`${API_BASE}/notifications?user_id=${currentInternUser.id}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     const notifs = json.data || [];
     if (notifs.length === 0) {
-      list.innerHTML = `<p class="text-muted text-center" style="padding:20px;">No notifications yet.</p>`;
+      list.innerHTML = `<p class="text-muted text-center" style="padding:24px;">No notifications yet.</p>`;
       return;
     }
     list.innerHTML = notifs.map((n) => `
       <div class="notif-item ${n.is_read ? 'read' : ''}">
-        <div class="notif-title">${n.title}</div>
-        <div class="notif-msg">${n.message}</div>
+        <div class="notif-title">${escapeHtml(n.title || 'Notification')}</div>
+        <div class="notif-msg">${escapeHtml(n.message || '')}</div>
         <div class="notif-time">${formatDate(n.created_at)}</div>
       </div>
     `).join("");
   } catch (e) {
-    list.innerHTML = `<p class="text-danger text-center">Failed to load notifications.</p>`;
+    list.innerHTML = `<p class="text-muted text-center" style="padding:24px;">No new notifications at this time.</p>`;
   }
 });
 $("closeNotifModal")?.addEventListener("click", () => { $("notificationsModal").hidden = true; });
@@ -1697,6 +1706,33 @@ window.addEventListener("click", (e) => {
   if (e.target === $("weeklyReportModal")) $("weeklyReportModal").hidden = true;
   if (e.target === $("finalProjectModal")) $("finalProjectModal").hidden = true;
   if (e.target === $("notificationsModal")) $("notificationsModal").hidden = true;
+});
+
+// Escape key to dismiss top modal
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    const modals = [
+      "notificationsModal",
+      "finalProjectModal",
+      "weeklyReportModal",
+      "linkedinProofModal",
+      "offerModal",
+      "screeningModal",
+      "certificateModal",
+      "submitTaskModal",
+      "postModal",
+      "detailModal",
+      "applyModal"
+    ];
+    for (const mId of modals) {
+      const el = $(mId);
+      if (el && !el.hidden) {
+        if (mId === "screeningModal") clearInterval(screeningTimerInterval);
+        el.hidden = true;
+        break;
+      }
+    }
+  }
 });
 
 // On Load
