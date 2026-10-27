@@ -13,7 +13,7 @@ from typing import Optional
 from fastapi import FastAPI, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -448,5 +448,5 @@ if STATIC_DIR.exists():
 def serve_index():
     index_file = STATIC_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(index_file)
+        return HTMLResponse(index_file.read_text(encoding="utf-8"))
     return {"message": "InternHub API is online. Visit /docs for Swagger UI documentation."}
