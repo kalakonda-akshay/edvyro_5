@@ -449,49 +449,64 @@ def get_user_offer(user_id: int):
         if not user:
             return {"data": None, "message": "User not found"}
 
+        # 1. Search by user_id
         offer = conn.execute(
-            "SELECT * FROM offers WHERE user_id = ? OR LOWER(email) = ? ORDER BY issued_at DESC LIMIT 1",
-            (user["id"], user["email"].strip().lower()),
+            "SELECT * FROM offers WHERE user_id = ? ORDER BY issued_at DESC LIMIT 1",
+            (user["id"],),
         ).fetchone()
 
+        # 2. Search by application linked to this user's email
         if not offer:
-            # Auto-issue an official offer letter for this registered intern
             app_row = conn.execute(
                 "SELECT id FROM applications WHERE LOWER(email) = ? ORDER BY id DESC LIMIT 1",
                 (user["email"].strip().lower(),),
             ).fetchone()
-            app_id = app_row["id"] if app_row else None
-            if not app_id:
-                first_internship = conn.execute("SELECT id FROM internships LIMIT 1").fetchone()
+            if app_row:
+                offer = conn.execute(
+                    "SELECT * FROM offers WHERE application_id = ? ORDER BY issued_at DESC LIMIT 1",
+                    (app_row["id"],),
+                ).fetchone()
+
+        if not offer:
+            first_internship = conn.execute("SELECT id FROM internships LIMIT 1").fetchone()
+            internship_id = first_internship["id"] if first_internship else 1
+            app_row = conn.execute(
+                "SELECT id FROM applications WHERE internship_id = ? AND LOWER(email) = ?",
+                (internship_id, user["email"].strip().lower()),
+            ).fetchone()
+
+            if app_row:
+                app_id = app_row["id"]
+            else:
+                phone_val = user["phone"] if (user["phone"] and len(user["phone"]) >= 7) else "+91 9390093424"
                 cur_app = conn.execute(
                     """INSERT INTO applications
                        (internship_id, full_name, email, phone, college, resume_url, skills_tags, status)
                        VALUES (?, ?, ?, ?, ?, 'https://drive.google.com/sample-resume.pdf', 'Python, React, FastAPI', 'Offered')""",
                     (
-                        first_internship["id"] if first_internship else 1,
+                        internship_id,
                         user["name"],
                         user["email"],
-                        user["phone"],
-                        user["college"],
+                        phone_val,
+                        user["college"] or "Engineering College",
                     ),
                 )
                 app_id = cur_app.lastrowid
 
             offer_id = f"OFF-2026-{random.randint(10000, 99999)}"
-            cur_offer = conn.execute(
+            conn.execute(
                 """INSERT INTO offers
-                   (application_id, user_id, offer_id, intern_name, email, track, batch, start_date, end_date, duration, stipend, mentor_name, status)
-                   VALUES (?, ?, ?, ?, ?, ?, '2026-B1', '2026-11-01', '2027-01-31', '3 Months', '₹15,000/mo', 'Dr. Ramesh Mentor', 'Offered')""",
+                   (offer_id, application_id, user_id, intern_name, track, batch, duration, start_date, end_date, stipend_amount, mentor_name, signatory_name, status, expires_at)
+                   VALUES (?, ?, ?, ?, ?, '2026-B1', '3 Months', '2026-11-01', '2027-01-31', 15000, 'Dr. Ramesh Mentor', 'Program Director', 'Offered', '2026-12-31')""",
                 (
+                    offer_id,
                     app_id,
                     user["id"],
-                    offer_id,
                     user["name"],
-                    user["email"],
                     user["domain"] or "Full Stack Web Development",
                 ),
             )
-            offer = conn.execute("SELECT * FROM offers WHERE id = ?", (cur_offer.lastrowid,)).fetchone()
+            offer = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (offer_id,)).fetchone()
             convex_sync.sync_record_to_convex_async("offers", dict(offer))
             notify_user(user["id"], "Official Internship Offer Letter Ready!", f"Your offer letter {offer_id} is ready for review.")
 
