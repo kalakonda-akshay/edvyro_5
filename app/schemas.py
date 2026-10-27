@@ -162,12 +162,14 @@ class ApplicationStatusUpdate(BaseModel):
 
 
 class QuizSubmissionCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     quiz_id: int
     answers: Dict[str, int] = Field(description="Map of question index or ID to chosen option index")
     tab_switches: int = Field(default=0, ge=0)
     copy_paste_count: int = Field(default=0, ge=0)
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
 
 
 class OfferCreate(BaseModel):

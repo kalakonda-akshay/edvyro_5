@@ -270,6 +270,12 @@ def seed_db(reset: bool = False) -> int:
             )
             intern_id = cur.lastrowid
 
+            # Also seed personal intern account
+            conn.execute(
+                """INSERT OR IGNORE INTO users (name, email, phone, college, domain, role)
+                   VALUES ('AKSHAY KALAKONDA', 'akshaykalakonda9@gmail.com', '9390093424', 'AMRITA VISWA VIDYAPEETHAM', 'Full Stack Web Development', 'intern')"""
+            )
+
             # Create sample application and offer for the demo intern
             first_internship = conn.execute("SELECT id, title, company FROM internships LIMIT 1").fetchone()
             if first_internship:

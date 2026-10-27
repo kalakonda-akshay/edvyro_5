@@ -117,6 +117,41 @@ def sync_all_from_sqlite(conn) -> Dict[str, int]:
     return synced_counts
 
 
+def restore_users_from_convex(conn) -> int:
+    """Restores any missing users from Convex into local SQLite on cold starts."""
+    restored = 0
+    try:
+        res = call_convex_query("records:listTable", {"table": "users"})
+        if res and res.get("status") == "success":
+            users = res.get("value", [])
+            for u in users:
+                email = (u.get("email") or "").strip().lower()
+                if not email:
+                    continue
+                existing = conn.execute("SELECT id FROM users WHERE LOWER(email) = ?", (email,)).fetchone()
+                if not existing:
+                    conn.execute(
+                        """INSERT INTO users (name, email, phone, college, domain, role, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            u.get("name", "Intern User"),
+                            email,
+                            u.get("phone", ""),
+                            u.get("college", ""),
+                            u.get("domain", "Full Stack Web Development"),
+                            u.get("role", "intern"),
+                            u.get("created_at", "2026-10-27T00:00:00Z"),
+                        ),
+                    )
+                    restored += 1
+            if restored > 0:
+                conn.commit()
+                logger.info("Restored %d user(s) from Convex Cloud DB.", restored)
+    except Exception as e:
+        logger.warning("Error restoring users from Convex: %s", str(e))
+    return restored
+
+
 def get_convex_status() -> Dict[str, Any]:
     """Check connectivity to Convex cloud deployment."""
     test = call_convex_query("records:listTable", {"table": "audit_logs"})

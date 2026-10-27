@@ -1097,6 +1097,8 @@ $("screeningForm")?.addEventListener("submit", async (e) => {
     answers,
     tab_switches: tabSwitchesCount,
     copy_paste_count: copyPasteCount,
+    user_email: currentInternUser.email,
+    user_name: currentInternUser.name,
   };
 
   try {
