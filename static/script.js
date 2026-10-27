@@ -936,6 +936,26 @@ $("exportSubsCsvBtn")?.addEventListener("click", () => {
   window.open(`${API_BASE}/admin/export/csv?type=submissions`, "_blank");
 });
 
+$("convexSyncBtn")?.addEventListener("click", async () => {
+  const btn = $("convexSyncBtn");
+  btn.disabled = true;
+  btn.textContent = "Syncing Convex...";
+  try {
+    const res = await fetch(`${API_BASE}/admin/convex/sync`, { method: "POST" });
+    const json = await res.json();
+    if (res.ok) {
+      showToast("⚡ All records successfully synchronized to Convex DB (harmless-axolotl-105)!");
+    } else {
+      showToast("Convex sync error");
+    }
+  } catch (e) {
+    showToast("Network error syncing Convex.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔄 Sync Convex";
+  }
+});
+
 // -------------------------------------------------------------
 // 4B. Screening Assessment Workflow
 // -------------------------------------------------------------

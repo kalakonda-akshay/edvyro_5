@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import db
+from . import convex_sync, db
 from .limiter import rate_limiter
 from .schemas import (
     ApplicationCreate,
@@ -195,27 +195,36 @@ def to_row_data(data: dict) -> dict:
 
 
 def log_audit(action: str, actor: str, details: str):
-    """Record an audit trail event in the database."""
+    """Record an audit trail event in SQLite and sync to Convex DB."""
     try:
         with db.get_conn() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO audit_logs (action, actor, details) VALUES (?, ?, ?)",
                 (action, actor, details),
             )
+            log_id = cur.lastrowid
+            row = conn.execute("SELECT * FROM audit_logs WHERE id = ?", (log_id,)).fetchone()
+            if row:
+                convex_sync.sync_record_to_convex_async("audit_logs", dict(row))
     except Exception as e:
         logger.error("Audit log error: %s", str(e))
 
 
 def notify_user(user_id: int, title: str, message: str):
-    """Deliver an in-app notification to the specified intern."""
+    """Deliver an in-app notification to the specified intern in SQLite and Convex DB."""
     try:
         with db.get_conn() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO in_app_notifications (user_id, title, message) VALUES (?, ?, ?)",
                 (user_id, title, message),
             )
+            notif_id = cur.lastrowid
+            row = conn.execute("SELECT * FROM in_app_notifications WHERE id = ?", (notif_id,)).fetchone()
+            if row:
+                convex_sync.sync_record_to_convex_async("in_app_notifications", dict(row))
     except Exception as e:
         logger.error("Notification error: %s", str(e))
+
 
 
 
@@ -278,6 +287,7 @@ def register_or_login(payload: UserRegister):
             (payload.name, payload.email, payload.phone, payload.college, payload.domain, payload.role),
         )
         user_row = conn.execute("SELECT * FROM users WHERE id = ?", (cur.lastrowid,)).fetchone()
+        convex_sync.sync_record_to_convex_async("users", dict(user_row))
         logger.info("New intern registered: #%d %s (%s)", user_row["id"], user_row["name"], user_row["email"])
         return {"data": dict(user_row), "message": "Registration successful! Welcome to InternshipChesko 🎯"}
 
@@ -354,6 +364,7 @@ def submit_screening_quiz(user_id: int, payload: QuizSubmissionCreate):
             sub_id = cur.lastrowid
 
         sub_row = conn.execute("SELECT * FROM quiz_submissions WHERE id = ?", (sub_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("quiz_submissions", dict(sub_row))
 
     msg = f"Screening completed! Score: {score_pct}%. Status: {'PASSED' if passed else 'RETRY NEEDED'}"
     notify_user(user_id, "Screening Assessment Result", msg)
@@ -440,6 +451,7 @@ def generate_offer_letter(app_id: int, payload: OfferCreate):
         )
         conn.execute("UPDATE applications SET status = 'Offered' WHERE id = ?", (app_id,))
         offer = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (offer_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("offers", dict(offer))
 
     if user_id:
         notify_user(user_id, "Official Internship Offer Letter Issued!", f"Congratulations! You have received an offer for {payload.track}. Offer ID: {offer_id}")
@@ -464,6 +476,7 @@ def respond_to_offer(offer_id: str, payload: OfferAction):
         conn.execute("UPDATE applications SET status = ? WHERE id = ?", (new_status, offer["application_id"]))
 
         updated = conn.execute("SELECT * FROM offers WHERE offer_id = ?", (offer["offer_id"],)).fetchone()
+        convex_sync.sync_record_to_convex_async("offers", dict(updated))
 
     if offer["user_id"]:
         notify_user(offer["user_id"], f"Offer {new_status}", f"Your offer status has been updated to {new_status}.")
@@ -503,6 +516,7 @@ def submit_linkedin_proof(user_id: int, payload: LinkedInProofCreate):
             proof_id = cur.lastrowid
 
         row = conn.execute("SELECT * FROM linkedin_proofs WHERE id = ?", (proof_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("linkedin_proofs", dict(row))
 
     notify_user(user_id, f"LinkedIn {payload.proof_type.capitalize()} Proof Submitted", "Your post proof is submitted and pending mentor approval.")
     log_audit("LINKEDIN_PROOF_SUBMIT", user["email"], f"{payload.proof_type} proof submitted: {payload.post_url}")
@@ -548,6 +562,7 @@ def review_linkedin_proof(proof_id: int, payload: LinkedInProofReview):
             (payload.status, payload.review_notes or "", proof_id),
         )
         updated = conn.execute("SELECT * FROM linkedin_proofs WHERE id = ?", (proof_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("linkedin_proofs", dict(updated))
 
     notify_user(proof["user_id"], f"LinkedIn Proof {payload.status}", f"Your LinkedIn {proof['proof_type']} proof was {payload.status}. Notes: {payload.review_notes or 'Approved!'}")
     log_audit("LINKEDIN_PROOF_REVIEW", "mentor", f"Proof #{proof_id} marked as {payload.status}")
@@ -679,6 +694,7 @@ def submit_task_solution(user_id: int, task_id: int, payload: TaskSubmit):
             sub_id = cur.lastrowid
 
         sub_row = conn.execute("SELECT * FROM task_submissions WHERE id = ?", (sub_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("task_submissions", dict(sub_row))
 
     notify_user(user_id, f"Task #{task['task_num']} Submitted", f"Your submission for '{task['title']}' was received and queued for mentor review.")
     log_audit("TASK_SUBMISSION", user["email"], f"Task #{task['task_num']} submitted: {payload.submission_url}")
@@ -720,6 +736,7 @@ def submit_weekly_report(user_id: int, payload: WeeklyReportCreate):
             report_id = cur.lastrowid
 
         row = conn.execute("SELECT * FROM weekly_reports WHERE id = ?", (report_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("weekly_reports", dict(row))
 
     notify_user(user_id, f"Week {payload.week_number} Report Logged", "Your weekly progress update was successfully recorded.")
     log_audit("WEEKLY_REPORT_SUBMIT", user["email"], f"Submitted week {payload.week_number} report")
@@ -795,6 +812,7 @@ def submit_final_project(user_id: int, payload: FinalProjectCreate):
             proj_id = cur.lastrowid
 
         row = conn.execute("SELECT * FROM final_projects WHERE id = ?", (proj_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("final_projects", dict(row))
 
     notify_user(user_id, "Final Project Submitted", "Your final project has been submitted for mentor review.")
     log_audit("FINAL_PROJECT_SUBMIT", user["email"], f"Final project submitted: {payload.project_title}")
@@ -837,6 +855,7 @@ def review_final_project(project_id: int, payload: FinalProjectReview):
 
         conn.execute("UPDATE final_projects SET status = ? WHERE id = ?", (payload.status, project_id))
         updated = conn.execute("SELECT * FROM final_projects WHERE id = ?", (project_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("final_projects", dict(updated))
 
     notify_user(proj["user_id"], f"Final Project {payload.status}", f"Your final project evaluation status is: {payload.status}")
     log_audit("FINAL_PROJECT_REVIEW", "admin", f"Final project #{project_id} marked as {payload.status}")
@@ -967,6 +986,7 @@ def review_task_submission(submission_id: int, payload: TaskReview):
                 )
                 existing_cert = conn.execute("SELECT * FROM certificates WHERE certificate_id = ?", (cert_id,)).fetchone()
                 cert_issued = True
+                convex_sync.sync_record_to_convex_async("certificates", dict(existing_cert))
                 notify_user(user_id, "Official Certificate Issued! 🎓", f"Congratulations! Your Internship Certificate {cert_id} is now available!")
                 log_audit("CERTIFICATE_AUTO_ISSUE", "system", f"Issued {cert_id} to {user['name']}")
                 logger.info("🎉 Certificate %s automatically issued to %s!", cert_id, user["name"])
@@ -1080,6 +1100,7 @@ def issue_certificate_manual(payload: CertificateIssue):
             ),
         )
         cert_row = conn.execute("SELECT * FROM certificates WHERE certificate_id = ?", (cert_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("certificates", dict(cert_row))
 
     notify_user(payload.user_id, "Certificate Issued! 🎓", f"Certificate {cert_id} has been issued by the admin.")
     log_audit("CERTIFICATE_MANUAL_ISSUE", "admin", f"Issued {cert_id} to {user['name']}")
@@ -1164,6 +1185,7 @@ def create_internship(payload: InternshipCreate, response: Response):
             data,
         )
         row = fetch_one(conn, cur.lastrowid)
+        convex_sync.sync_record_to_convex_async("internships", dict(row))
     logger.info("Created internship #%d: '%s' at '%s'", row["id"], row["title"], row["company"])
     response.headers["Location"] = f"/internships/{row['id']}"
     return {"data": row}
@@ -1267,6 +1289,7 @@ def submit_application(internship_id: int, payload: ApplicationCreate, request: 
         )
         app_id = cur.lastrowid
         app_row = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("applications", dict(app_row))
 
     response.headers["Location"] = f"/internships/{internship_id}/applications/{app_id}"
     return {
@@ -1324,6 +1347,7 @@ def update_application_status(app_id: int, payload: ApplicationStatusUpdate):
 
         conn.execute("UPDATE applications SET status = ? WHERE id = ?", (payload.status, app_id))
         updated = conn.execute("SELECT * FROM applications WHERE id = ?", (app_id,)).fetchone()
+        convex_sync.sync_record_to_convex_async("applications", dict(updated))
 
         # If user account exists for applicant, deliver in-app notification
         user = conn.execute("SELECT id FROM users WHERE email = ?", (app_row["email"],)).fetchone()
@@ -1406,6 +1430,29 @@ def mark_notification_read(notification_id: int):
     with db.get_conn() as conn:
         conn.execute("UPDATE in_app_notifications SET is_read = 1 WHERE id = ?", (notification_id,))
         return {"message": "Notification marked as read."}
+
+
+# ---------- Convex Cloud Database Endpoints ----------
+@app.post("/admin/convex/sync", tags=["Convex"])
+def trigger_convex_sync():
+    """Batch synchronizes all SQLite data to Convex Cloud DB (harmless-axolotl-105)."""
+    ensure_db()
+    with db.get_conn() as conn:
+        counts = convex_sync.sync_all_from_sqlite(conn)
+    log_audit("CONVEX_SYNC", "admin", f"Synced tables to Convex: {json.dumps(counts)}")
+    return {
+        "status": "success",
+        "message": "All records successfully synchronized to Convex DB deployment (harmless-axolotl-105)!",
+        "deployment": "https://harmless-axolotl-105.convex.cloud",
+        "synced_counts": counts,
+    }
+
+
+@app.get("/admin/convex/status", tags=["Convex"])
+def get_convex_sync_status():
+    """Retrieve Convex Cloud DB connection status."""
+    status = convex_sync.get_convex_status()
+    return {"data": status}
 
 
 # ---------- Frontend Static Files Mounting ----------

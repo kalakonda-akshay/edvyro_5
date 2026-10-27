@@ -4,6 +4,8 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+node_modules/
+package-lock.json
 .pytest_cache/
 .DS_Store
 .vercel

@@ -1,0 +1,12 @@
+{
+  "name": "edvyro_5",
+  "version": "1.0.0",
+  "description": "InternshipChesko Full Platform with Convex DB Integration",
+  "scripts": {
+    "convex:deploy": "convex deploy",
+    "convex:dev": "convex dev"
+  },
+  "dependencies": {
+    "convex": "^1.18.0"
+  }
+}
