@@ -23,6 +23,20 @@ let currentViewingCertificate = null;
 // DOM Utilities
 const $ = (id) => document.getElementById(id);
 
+function showModal(modal) {
+  const el = typeof modal === "string" ? $(modal) : modal;
+  if (!el) return;
+  el.hidden = false;
+  el.style.display = "flex";
+}
+
+function hideModal(modal) {
+  const el = typeof modal === "string" ? $(modal) : modal;
+  if (!el) return;
+  el.hidden = true;
+  el.style.display = "none";
+}
+
 function showToast(message) {
   const container = $("toastContainer");
   const toast = document.createElement("div");
@@ -1288,7 +1302,7 @@ $("notifBtn")?.addEventListener("click", async () => {
   }
   const list = $("notificationsList");
   list.innerHTML = `<p class="text-muted text-center" style="padding:24px;">Loading notifications...</p>`;
-  $("notificationsModal").hidden = false;
+  showModal("notificationsModal");
 
   try {
     const controller = new AbortController();
@@ -1316,7 +1330,7 @@ $("notifBtn")?.addEventListener("click", async () => {
     list.innerHTML = `<p class="text-muted text-center" style="padding:24px;">No new notifications at this time.</p>`;
   }
 });
-$("closeNotifModal")?.addEventListener("click", () => { $("notificationsModal").hidden = true; });
+$("closeNotifModal")?.addEventListener("click", () => { hideModal("notificationsModal"); });
 
 
 // -------------------------------------------------------------
@@ -1691,44 +1705,40 @@ $("clearFiltersBtn").addEventListener("click", () => $("resetFilters").click());
 $("retryBtn").addEventListener("click", fetchInternships);
 $("refreshBtn").addEventListener("click", fetchInternships);
 
-window.addEventListener("click", (e) => {
-  if (e.target === $("applyModal")) $("applyModal").hidden = true;
-  if (e.target === $("detailModal")) $("detailModal").hidden = true;
-  if (e.target === $("postModal")) $("postModal").hidden = true;
-  if (e.target === $("submitTaskModal")) $("submitTaskModal").hidden = true;
-  if (e.target === $("certificateModal")) $("certificateModal").hidden = true;
-  if (e.target === $("screeningModal")) {
-    clearInterval(screeningTimerInterval);
-    $("screeningModal").hidden = true;
+// Global Modal Dismissal: Cross Button, Backdrop, and Escape Key
+document.addEventListener("click", (e) => {
+  // 1. Cross button (x / wrong button) clicked
+  const closeBtn = e.target.closest(".close") || e.target.closest(".btn-ghost[id^='cancel']");
+  if (closeBtn) {
+    const parentModal = closeBtn.closest(".modal");
+    if (parentModal) {
+      if (parentModal.id === "screeningModal" && typeof screeningTimerInterval !== "undefined") {
+        clearInterval(screeningTimerInterval);
+      }
+      hideModal(parentModal);
+      return;
+    }
   }
-  if (e.target === $("offerModal")) $("offerModal").hidden = true;
-  if (e.target === $("linkedinProofModal")) $("linkedinProofModal").hidden = true;
-  if (e.target === $("weeklyReportModal")) $("weeklyReportModal").hidden = true;
-  if (e.target === $("finalProjectModal")) $("finalProjectModal").hidden = true;
-  if (e.target === $("notificationsModal")) $("notificationsModal").hidden = true;
+
+  // 2. Backdrop click
+  if (e.target && e.target.classList && e.target.classList.contains("modal")) {
+    if (e.target.id === "screeningModal" && typeof screeningTimerInterval !== "undefined") {
+      clearInterval(screeningTimerInterval);
+    }
+    hideModal(e.target);
+  }
 });
 
 // Escape key to dismiss top modal
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    const modals = [
-      "notificationsModal",
-      "finalProjectModal",
-      "weeklyReportModal",
-      "linkedinProofModal",
-      "offerModal",
-      "screeningModal",
-      "certificateModal",
-      "submitTaskModal",
-      "postModal",
-      "detailModal",
-      "applyModal"
-    ];
-    for (const mId of modals) {
-      const el = $(mId);
-      if (el && !el.hidden) {
-        if (mId === "screeningModal") clearInterval(screeningTimerInterval);
-        el.hidden = true;
+    const modals = document.querySelectorAll(".modal");
+    for (const m of modals) {
+      if (!m.hidden && m.style.display !== "none") {
+        if (m.id === "screeningModal" && typeof screeningTimerInterval !== "undefined") {
+          clearInterval(screeningTimerInterval);
+        }
+        hideModal(m);
         break;
       }
     }

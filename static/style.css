@@ -25,6 +25,12 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+[hidden],
+.modal[hidden],
+[hidden="true"] {
+  display: none !important;
+}
+
 body {
   font-family: var(--font);
   background-color: var(--bg);
@@ -719,6 +725,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 /* Modals General */
+.modal[hidden],
+.modal.hidden {
+  display: none !important;
+}
 .modal {
   position: fixed;
   inset: 0;
