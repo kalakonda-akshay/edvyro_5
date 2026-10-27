@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>InternshipChesko 🎯 – Find, Apply & Crack Your Next Tech Internship</title>
-  <meta name="description" content="Internship Chesko: The full-stack production internship portal. Explore verified software, AI, and data roles across Hyderabad, Bengaluru, and Remote." />
+  <title>InternshipChesko 🎯 – Full Internship Platform with Intern & Admin Panels</title>
+  <meta name="description" content="Production-ready internship portal with Intern Portal, Admin Dashboard, Milestone Tasks, and Verified Certificates of Completion." />
   <link rel="stylesheet" href="/static/style.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎯</text></svg>">
 </head>
@@ -18,131 +18,523 @@
           <span class="status-dot"></span> <span class="status-text">Connecting API...</span>
         </div>
       </div>
+
+      <!-- Main Navigation Tabs: Switch between Panels -->
+      <nav class="nav-tabs" aria-label="Portal views">
+        <button class="nav-tab active" id="tabBrowseBtn" data-view="view-browse">
+          🔍 Explore Internships
+        </button>
+        <button class="nav-tab" id="tabInternBtn" data-view="view-intern">
+          🎓 Intern Portal <span id="internNavBadge" class="nav-badge" hidden>Registered</span>
+        </button>
+        <button class="nav-tab" id="tabAdminBtn" data-view="view-admin">
+          🛡️ Admin Panel <span id="adminPendingBadge" class="nav-badge alert" hidden>0</span>
+        </button>
+      </nav>
+
       <div class="topbar-actions">
         <button id="postInternshipBtn" class="btn btn-primary btn-sm">+ Post Internship</button>
-        <button id="myAppsBtn" class="btn btn-ghost">📋 My Applications</button>
-        <button id="savedBtn" class="btn btn-ghost">♥ Saved (<span id="savedCount">0</span>)</button>
-        <button id="filterToggle" class="btn btn-outline mobile-only" aria-expanded="false" aria-controls="filters">☰ Filters</button>
+        <button id="savedBtn" class="btn btn-ghost btn-sm">♥ Saved (<span id="savedCount">0</span>)</button>
       </div>
     </div>
   </header>
 
-  <!-- Hero Banner -->
-  <section class="hero">
-    <div class="container">
-      <span class="hero-tag">🔥 Inka alochinchadam aapu, Internship Chesko!</span>
-      <h1>Find, Apply & Crack Your Dream Internship</h1>
-      <p>Discover hand-picked software, AI/ML, cybersecurity, data, and design internships in Hyderabad, Bengaluru & Remote. Powered by our secured full-stack REST API.</p>
-      
-      <div class="search-wrap">
-        <input id="search" type="search" placeholder="Search by role (e.g. Full Stack), company (e.g. PixelNest), or skill (Python, React, Docker)…" aria-label="Search internships" />
-      </div>
-
-      <!-- Quick Category Pills -->
-      <div class="category-pills" id="categoryPills">
-        <button class="pill active" data-category="">All Categories</button>
-        <button class="pill" data-category="Web Development">Web Development</button>
-        <button class="pill" data-category="Software Engineering">Software Engineering</button>
-        <button class="pill" data-category="Data Science">Data Science</button>
-        <button class="pill" data-category="Artificial Intelligence">AI & ML</button>
-        <button class="pill" data-category="Cybersecurity">Cybersecurity</button>
-        <button class="pill" data-category="DevOps">Cloud & DevOps</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- Floating Toast Notifications -->
+  <!-- Toast Notification Container -->
   <div id="toastContainer" class="toast-container" aria-live="assertive"></div>
 
-  <!-- Main Content Layout -->
-  <main class="container layout">
-    <!-- Filter Sidebar -->
-    <aside id="filters" class="filters" aria-label="Internship Filters">
-      <div class="filter-header">
-        <h3>Filter Openings</h3>
-        <button id="closeFiltersBtn" class="btn btn-ghost btn-sm mobile-only" aria-label="Close filters">✕</button>
-      </div>
-
-      <div class="filter-group">
-        <label for="workModeFilter">Work Mode</label>
-        <select id="workModeFilter">
-          <option value="">All Modes</option>
-          <option value="remote">Remote Only</option>
-          <option value="hybrid">Hybrid</option>
-          <option value="onsite">On-Site Only</option>
-        </select>
-      </div>
-
-      <div class="filter-group">
-        <label for="statusFilter">Status</label>
-        <select id="statusFilter">
-          <option value="">All Openings</option>
-          <option value="open">Open Positions Only</option>
-          <option value="closed">Closed Positions</option>
-        </select>
-      </div>
-
-      <div class="filter-group">
-        <label for="stipendFilter">Min Stipend: <span id="stipendLabel">₹0/mo</span></label>
-        <input type="range" id="stipendFilter" min="0" max="25000" step="1000" value="0" />
-      </div>
-
-      <div class="filter-group check">
-        <label><input type="checkbox" id="savedOnly" /> Only show saved internships</label>
-      </div>
-
-      <button id="resetFilters" class="btn btn-outline full">Reset All Filters</button>
-    </aside>
-
-    <!-- Results Section -->
-    <section class="results">
-      <div class="results-toolbar">
-        <div>
-          <h2 id="resultHeading" class="results-title">Available Openings</h2>
-          <p id="resultCount" class="result-count" aria-live="polite">Querying backend API...</p>
+  <!-- ======================================================== -->
+  <!-- VIEW 1: BROWSE INTERNSHIPS (PUBLIC BOARD)                -->
+  <!-- ======================================================== -->
+  <div id="view-browse" class="portal-view active">
+    <!-- Hero Banner -->
+    <section class="hero">
+      <div class="container">
+        <span class="hero-tag">🔥 Inka alochinchadam aapu, Internship Chesko!</span>
+        <h1>Find, Apply & Crack Your Dream Internship</h1>
+        <p>Verified software engineering, data science, AI/ML, and cybersecurity internships in Hyderabad, Bengaluru & Remote. Complete your tasks and earn an official verified certificate!</p>
+        
+        <div class="search-wrap">
+          <input id="search" type="search" placeholder="Search by role (e.g. Full Stack), company (e.g. CloudLeaf), or skill (Python, React, Docker)…" aria-label="Search internships" />
         </div>
-        <div class="toolbar-controls">
-          <label for="sortFilter" class="sr-only">Sort listings</label>
-          <select id="sortFilter" class="select-sm">
-            <option value="default">Sort: Default</option>
-            <option value="stipend-high">Highest Stipend</option>
-            <option value="deadline-soon">Deadline Soonest</option>
+
+        <div class="category-pills" id="categoryPills">
+          <button class="pill active" data-category="">All Categories</button>
+          <button class="pill" data-category="Web Development">Web Development</button>
+          <button class="pill" data-category="Software Engineering">Software Engineering</button>
+          <button class="pill" data-category="Data Science">Data Science</button>
+          <button class="pill" data-category="Artificial Intelligence">AI & ML</button>
+          <button class="pill" data-category="Cybersecurity">Cybersecurity</button>
+          <button class="pill" data-category="DevOps">Cloud & DevOps</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Browse Layout -->
+    <main class="container layout">
+      <!-- Filter Sidebar -->
+      <aside id="filters" class="filters" aria-label="Internship Filters">
+        <div class="filter-header">
+          <h3>Filter Openings</h3>
+        </div>
+
+        <div class="filter-group">
+          <label for="workModeFilter">Work Mode</label>
+          <select id="workModeFilter">
+            <option value="">All Modes</option>
+            <option value="remote">Remote Only</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="onsite">On-Site Only</option>
           </select>
-          <button id="refreshBtn" class="btn btn-ghost btn-sm" title="Refresh records from server">↻ Sync</button>
         </div>
-      </div>
 
-      <!-- State 1: Visible Animated Loading Skeletons -->
-      <div id="loadingState" class="grid skeletons">
-        <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
-        <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
-        <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
-      </div>
+        <div class="filter-group">
+          <label for="statusFilter">Status</label>
+          <select id="statusFilter">
+            <option value="">All Openings</option>
+            <option value="open">Open Positions Only</option>
+            <option value="closed">Closed Positions</option>
+          </select>
+        </div>
 
-      <!-- State 2: Visible Failure / Error State with Interactive Retry -->
-      <div id="failureState" class="state-card failure-card" hidden>
-        <div class="state-icon">⚠️</div>
-        <h3>Failed to Connect to InternshipChesko API</h3>
-        <p id="failureMessage">We were unable to establish a secure connection to the backend server. Please verify the API is running.</p>
-        <div class="state-actions">
+        <div class="filter-group">
+          <label for="stipendFilter">Min Stipend: <span id="stipendLabel">₹0/mo</span></label>
+          <input type="range" id="stipendFilter" min="0" max="25000" step="1000" value="0" />
+        </div>
+
+        <div class="filter-group check">
+          <label><input type="checkbox" id="savedOnly" /> Only show saved internships</label>
+        </div>
+
+        <button id="resetFilters" class="btn btn-outline full">Reset All Filters</button>
+      </aside>
+
+      <!-- Results Grid -->
+      <section class="results">
+        <div class="results-toolbar">
+          <div>
+            <h2 class="results-title">Available Positions</h2>
+            <p id="resultCount" class="result-count" aria-live="polite">Querying backend API...</p>
+          </div>
+          <div class="toolbar-controls">
+            <label for="sortFilter" class="sr-only">Sort listings</label>
+            <select id="sortFilter" class="select-sm">
+              <option value="default">Sort: Default</option>
+              <option value="stipend-high">Highest Stipend</option>
+              <option value="deadline-soon">Deadline Soonest</option>
+            </select>
+            <button id="refreshBtn" class="btn btn-ghost btn-sm" title="Refresh records from server">↻ Sync</button>
+          </div>
+        </div>
+
+        <!-- Skeletons Loading -->
+        <div id="loadingState" class="grid skeletons">
+          <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
+          <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
+          <div class="card skeleton-card"><div class="sk-line sk-title"></div><div class="sk-line sk-sub"></div><div class="sk-block"></div><div class="sk-line sk-btn"></div></div>
+        </div>
+
+        <!-- Failure State -->
+        <div id="failureState" class="state-card failure-card" hidden>
+          <div class="state-icon">⚠️</div>
+          <h3>Failed to Connect to InternshipChesko API</h3>
+          <p id="failureMessage">We were unable to connect to the backend server. Please verify the API is running.</p>
           <button id="retryBtn" class="btn btn-primary">↻ Retry Connection</button>
         </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="state-card empty-card" hidden>
+          <div class="state-icon">🔍</div>
+          <h3>No internships match your active filters</h3>
+          <p>Try resetting filters or adjusting search keywords.</p>
+          <button id="clearFiltersBtn" class="btn btn-outline">Clear All Filters</button>
+        </div>
+
+        <!-- Listings Grid -->
+        <div id="internshipGrid" class="grid" hidden></div>
+      </section>
+    </main>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- VIEW 2: INTERN PORTAL & TASK WORKFLOW (PANEL 1)          -->
+  <!-- ======================================================== -->
+  <div id="view-intern" class="portal-view">
+    <div class="container section-padding">
+      <!-- 2A. Intern Registration / Login Screen (Shown if not logged in) -->
+      <div id="internAuthSection" class="auth-box card">
+        <div class="auth-header">
+          <span class="modal-badge">🎓 Step 1: Intern Registration</span>
+          <h2>Register / Login to Intern Dashboard</h2>
+          <p class="text-muted">Register once to track your assigned tasks, submit GitHub repository proofs, and unlock your official certificate upon task completion.</p>
+        </div>
+
+        <form id="internRegForm" class="auth-form" novalidate>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="internName">Full Legal Name <span class="required">*</span></label>
+              <input type="text" id="internName" placeholder="e.g. Akshay Kalakonda" required minlength="2" />
+            </div>
+            <div class="form-group">
+              <label for="internEmail">Email Address <span class="required">*</span></label>
+              <input type="email" id="internEmail" placeholder="e.g. akshay@example.com" required />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="internPhone">Contact Number <span class="required">*</span></label>
+              <input type="tel" id="internPhone" placeholder="e.g. +91 9876543210" required />
+            </div>
+            <div class="form-group">
+              <label for="internCollege">College / University Name <span class="required">*</span></label>
+              <input type="text" id="internCollege" placeholder="e.g. Osmania University / JNTU" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="internDomain">Internship Track / Domain <span class="required">*</span></label>
+            <select id="internDomain">
+              <option value="Full Stack Web Development">Full Stack Web Development</option>
+              <option value="Backend Engineering & REST APIs">Backend Engineering & REST APIs</option>
+              <option value="Data Science & Analytics">Data Science & Analytics</option>
+              <option value="AI & Machine Learning">AI & Machine Learning</option>
+              <option value="Cybersecurity Operations">Cybersecurity Operations</option>
+              <option value="Cloud Computing & DevOps">Cloud Computing & DevOps</option>
+            </select>
+          </div>
+
+          <button type="submit" class="btn btn-primary full" id="internRegBtn">
+            Enter My Intern Dashboard 🚀
+          </button>
+        </form>
       </div>
 
-      <!-- State 3: Empty State -->
-      <div id="emptyState" class="state-card empty-card" hidden>
-        <div class="state-icon">🔍</div>
-        <h3>No internships match your active filters</h3>
-        <p>Try clearing some filters or searching for alternative tech keywords.</p>
-        <button id="clearFiltersBtn" class="btn btn-outline">Clear All Filters</button>
+      <!-- 2B. Intern Active Dashboard (Shown once intern registers/logs in) -->
+      <div id="internDashboardSection" hidden>
+        <!-- Intern Profile Card -->
+        <div class="profile-banner card">
+          <div class="profile-main">
+            <div class="avatar-circle">🎓</div>
+            <div>
+              <h2 id="profileName">Akshay Kalakonda</h2>
+              <p class="profile-sub">
+                <span id="profileDomain">Full Stack Web Development</span> · 
+                <span id="profileCollege">Osmania University</span> · 
+                <span id="profileEmail" class="text-muted">akshay@example.com</span>
+              </p>
+            </div>
+          </div>
+          <div class="profile-actions">
+            <button id="switchUserBtn" class="btn btn-outline btn-sm">Switch Intern Account</button>
+          </div>
+        </div>
+
+        <!-- Task Completion Progress Banner -->
+        <div class="progress-card card">
+          <div class="progress-header">
+            <div>
+              <h3>Milestone Completion Progress</h3>
+              <p id="progressSubtitle" class="text-muted">Complete all 5 tasks and get admin approval to receive your official certificate.</p>
+            </div>
+            <div class="progress-score">
+              <span id="progressPercentText" class="score-num">0%</span>
+              <span class="score-sub" id="tasksScoreText">0/5 Approved</span>
+            </div>
+          </div>
+
+          <div class="progress-bar-track">
+            <div id="progressBarFill" class="progress-bar-fill" style="width: 0%;"></div>
+          </div>
+
+          <!-- Certificate Status Callout -->
+          <div id="certUnlockedBox" class="cert-callout-box" hidden>
+            <div class="cert-callout-content">
+              <span class="cert-trophy">🏆</span>
+              <div>
+                <h4>Congratulations! All Tasks Completed & Approved!</h4>
+                <p>Your official verified Internship Certificate has been issued by InternshipChesko.</p>
+              </div>
+            </div>
+            <button id="viewMyCertBtn" class="btn btn-gold">
+              🎓 View & Print Verified Certificate
+            </button>
+          </div>
+        </div>
+
+        <!-- 5 Milestone Tasks Grid -->
+        <div class="tasks-section-header">
+          <h3>Your Assigned Internship Tasks (Milestones 1 – 5)</h3>
+          <p class="text-muted">Submit proof links (e.g. GitHub repositories or live URLs) for each task. Once approved by the admin, your certificate will be generated.</p>
+        </div>
+
+        <div id="tasksList" class="tasks-grid"></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- VIEW 3: ADMIN PANEL (PANEL 2)                            -->
+  <!-- ======================================================== -->
+  <div id="view-admin" class="portal-view">
+    <div class="container section-padding">
+      <div class="admin-top-header">
+        <div>
+          <span class="modal-badge">🛡️ Administration & Oversight</span>
+          <h2>Platform Management & Review Operations</h2>
+          <p class="text-muted">Review task submissions, approve intern completions, issue certificates, and oversee internship applicants.</p>
+        </div>
+        <div>
+          <button id="refreshAdminBtn" class="btn btn-outline btn-sm">↻ Sync Metrics</button>
+        </div>
       </div>
 
-      <!-- State 4: Rendered Internship Grid -->
-      <div id="internshipGrid" class="grid" hidden></div>
-    </section>
-  </main>
+      <!-- Admin Stat KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card card">
+          <div class="kpi-title">Registered Interns</div>
+          <div class="kpi-value" id="kpiInterns">0</div>
+          <div class="kpi-sub">Active in portal</div>
+        </div>
+        <div class="kpi-card card">
+          <div class="kpi-title">Pending Task Reviews</div>
+          <div class="kpi-value warning" id="kpiPending">0</div>
+          <div class="kpi-sub">Needs approval</div>
+        </div>
+        <div class="kpi-card card">
+          <div class="kpi-title">Certificates Issued</div>
+          <div class="kpi-value success" id="kpiCertificates">0</div>
+          <div class="kpi-sub">Verified credentials</div>
+        </div>
+        <div class="kpi-card card">
+          <div class="kpi-title">Job Applications</div>
+          <div class="kpi-value" id="kpiApplications">0</div>
+          <div class="kpi-sub">Total submissions</div>
+        </div>
+      </div>
 
-  <!-- Modal 1: Application Form Modal -->
+      <!-- Admin Sub-Navigation Tabs -->
+      <div class="admin-subtabs">
+        <button class="subtab active" data-subtab="admin-tab-reviews">📝 Task Submissions Review (<span id="adminPendingCount">0</span>)</button>
+        <button class="subtab" data-subtab="admin-tab-interns">👥 Interns Roster</button>
+        <button class="subtab" data-subtab="admin-tab-applications">💼 Job Applications</button>
+      </div>
+
+      <!-- Subtab 1: Task Reviews Table -->
+      <div id="admin-tab-reviews" class="admin-tab-content active">
+        <div class="card table-card">
+          <div class="card-title-bar">
+            <h3>Task Milestone Submissions</h3>
+            <span class="text-muted">Review candidate links and click Approve to progress interns towards certification.</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Intern</th>
+                  <th>Task</th>
+                  <th>Submission Link</th>
+                  <th>Status</th>
+                  <th>Submitted At</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminSubmissionsTbody">
+                <tr><td colspan="6" class="text-center text-muted">Loading submissions...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Subtab 2: Interns Roster -->
+      <div id="admin-tab-interns" class="admin-tab-content">
+        <div class="card table-card">
+          <div class="card-title-bar">
+            <h3>Registered Interns Roster</h3>
+            <span class="text-muted">Overview of candidate progress, colleges, and issued certificates.</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Intern Name</th>
+                  <th>College</th>
+                  <th>Domain</th>
+                  <th>Approved Tasks</th>
+                  <th>Certificate</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="adminInternsTbody">
+                <tr><td colspan="6" class="text-center text-muted">Loading interns...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Subtab 3: Job Applications -->
+      <div id="admin-tab-applications" class="admin-tab-content">
+        <div class="card table-card">
+          <div class="card-title-bar">
+            <h3>Candidate Job Applications</h3>
+            <span class="text-muted">Applications submitted through the public internship board.</span>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Applicant</th>
+                  <th>Contact</th>
+                  <th>Resume Link</th>
+                  <th>Cover Note</th>
+                  <th>Applied At</th>
+                </tr>
+              </thead>
+              <tbody id="adminApplicationsTbody">
+                <tr><td colspan="5" class="text-center text-muted">Loading applications...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- MODAL: VERIFIED INTERNSHIP CERTIFICATE OF COMPLETION     -->
+  <!-- ======================================================== -->
+  <div id="certificateModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="certDocTitle">
+    <div class="modal-box modal-certificate-box">
+      <div class="no-print cert-action-toolbar">
+        <button class="btn btn-outline btn-sm" id="copyCertLinkBtn">🔗 Copy Verification Link</button>
+        <button class="btn btn-primary btn-sm" id="printCertBtn">🖨️ Print / Save as PDF</button>
+        <button class="close" id="closeCertModal" aria-label="Close dialog">✕</button>
+      </div>
+
+      <!-- Authentic Certificate Document Paper -->
+      <div id="certificatePaper" class="certificate-paper">
+        <div class="cert-outer-border">
+          <div class="cert-inner-border">
+            <!-- Header Ornament -->
+            <div class="cert-header">
+              <div class="cert-brand">
+                <span class="cert-logo-icon">🎯</span>
+                <span class="cert-brand-name">INTERNSHIPCHESKO</span>
+              </div>
+              <p class="cert-subtitle">CENTER FOR ADVANCED INDUSTRIAL TRAINING & PROFESSIONAL EXCELLENCE</p>
+              <h1 class="cert-main-title" id="certDocTitle">CERTIFICATE OF COMPLETION</h1>
+              <div class="cert-ornament-line"></div>
+            </div>
+
+            <!-- Body Text -->
+            <div class="cert-body">
+              <p class="cert-present">PROUDLY PRESENTED TO</p>
+              <h2 class="cert-intern-name" id="certInternName">AKSHAY KALAKONDA</h2>
+              <p class="cert-college" id="certCollege">from Osmania University College of Engineering</p>
+
+              <p class="cert-statement">
+                for successfully completing the rigorous <strong><span id="certDomain">Full Stack Web Development</span></strong> internship program from <span id="certStartDate">September 01, 2026</span> to <span id="certEndDate">October 27, 2026</span>.
+              </p>
+
+              <p class="cert-details">
+                During this tenure, the candidate demonstrated exceptional engineering proficiency across 5 industrial milestones, including modern frontend architectures, RESTful microservices, normalized relational databases, sliding-window rate limiting, and production cloud capstones.
+              </p>
+
+              <div class="cert-grade-tag">
+                Performance Evaluation: <strong id="certGrade">Outstanding (A+)</strong>
+              </div>
+            </div>
+
+            <!-- Footer Signatures & Gold Seal -->
+            <div class="cert-footer">
+              <div class="cert-sig-block">
+                <div class="sig-line">
+                  <span class="digital-sig">Akshay K.</span>
+                </div>
+                <div class="sig-name">Program Director</div>
+                <div class="sig-title">InternshipChesko Tech Labs</div>
+              </div>
+
+              <!-- Gold Foil Ribbon Seal -->
+              <div class="cert-seal">
+                <div class="seal-circle">
+                  <div class="seal-inner">
+                    <span>OFFICIAL</span>
+                    <span class="seal-star">★ VERIFIED ★</span>
+                    <span>SEAL</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="cert-sig-block">
+                <div class="sig-line">
+                  <span class="digital-sig">Dr. P. Sharma</span>
+                </div>
+                <div class="sig-name">Managing Partner</div>
+                <div class="sig-title">EdVyro Certification Board</div>
+              </div>
+            </div>
+
+            <!-- Verification Footer Bar -->
+            <div class="cert-verify-bar">
+              <div>Certificate ID: <strong id="certIdDisplay">IC-2026-89104</strong></div>
+              <div>Status: <span class="badge badge-status-open">VERIFIED & ACCREDITED</span></div>
+              <div>Verify Online: <span id="certVerifyUrl" class="verify-url">https://edvyro5.vercel.app/certificates/IC-2026-89104</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- MODAL: TASK SUBMISSION DIALOG                            -->
+  <!-- ======================================================== -->
+  <div id="submitTaskModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="submitTaskModalTitle">
+    <div class="modal-box">
+      <button class="close" id="closeSubmitTaskModal" aria-label="Close dialog">✕</button>
+      <div class="modal-header">
+        <span class="modal-badge">Milestone Deliverable Submission</span>
+        <h2 id="submitTaskModalTitle">Submit Task Solution</h2>
+        <p class="modal-subtitle" id="submitTaskModalSubtitle">Task 1: Interactive Frontend Interface</p>
+      </div>
+
+      <div id="taskSubmitAlert" class="alert-box" hidden></div>
+
+      <form id="taskSubmitForm" novalidate>
+        <input type="hidden" id="submitTaskId" />
+
+        <div class="form-group">
+          <label for="taskSubmissionUrl">GitHub Repository or Live Deployment URL <span class="required">*</span></label>
+          <input type="url" id="taskSubmissionUrl" placeholder="https://github.com/username/repository or https://app.vercel.app" required />
+          <span class="field-error" id="err-taskSubmissionUrl"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="taskNotes">Notes & Implementation Summary (Optional)</label>
+          <textarea id="taskNotes" rows="3" placeholder="Briefly describe what you built, key challenges, and how to test..."></textarea>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" id="cancelSubmitTaskBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="confirmSubmitTaskBtn">
+            <span class="btn-text">Submit for Admin Review 🚀</span>
+            <span class="spinner" hidden></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ======================================================== -->
+  <!-- MODAL: APPLICATION FOR INTERNSHIP                        -->
+  <!-- ======================================================== -->
   <div id="applyModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="applyModalTitle">
     <div class="modal-box">
       <button class="close" id="closeApplyModal" aria-label="Close dialog">✕</button>
@@ -177,16 +569,14 @@
         </div>
 
         <div class="form-group">
-          <label for="resumeUrl">Resume Link (Public Drive, Portfolio, or LinkedIn) <span class="required">*</span></label>
+          <label for="resumeUrl">Resume Link (Drive, Portfolio, or LinkedIn) <span class="required">*</span></label>
           <input type="url" id="resumeUrl" placeholder="https://drive.google.com/... or https://portfolio.com/cv.pdf" required maxlength="500" />
           <span class="field-error" id="err-resumeUrl"></span>
         </div>
 
         <div class="form-group">
-          <label for="coverLetter">Cover Statement & Relevant Experience (Optional)</label>
-          <textarea id="coverLetter" rows="4" maxlength="2000" placeholder="Highlight relevant coursework, projects, or why you're passionate about this team..."></textarea>
-          <div class="char-count"><span id="charCount">0</span>/2000</div>
-          <span class="field-error" id="err-coverLetter"></span>
+          <label for="coverLetter">Cover Statement & Availability (Optional)</label>
+          <textarea id="coverLetter" rows="3" maxlength="2000" placeholder="Highlight relevant coursework, projects, or why you're passionate..."></textarea>
         </div>
 
         <div class="modal-footer">
@@ -200,36 +590,10 @@
     </div>
   </div>
 
-  <!-- Modal 2: Internship Details View -->
-  <div id="detailModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="detailTitle">
-    <div class="modal-box modal-lg">
-      <button class="close" id="closeDetailModal" aria-label="Close dialog">✕</button>
-      <div id="detailContent"></div>
-    </div>
-  </div>
 
-  <!-- Modal 3: "My Applications" Tracking Modal -->
-  <div id="myAppsModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="myAppsTitle">
-    <div class="modal-box">
-      <button class="close" id="closeMyAppsModal" aria-label="Close dialog">✕</button>
-      <div class="modal-header">
-        <span class="modal-badge">Applicant Portal</span>
-        <h2 id="myAppsTitle">My Submitted Applications</h2>
-        <p class="modal-subtitle">Enter your email address to look up all positions you've applied for on InternshipChesko.</p>
-      </div>
-
-      <div class="lookup-bar">
-        <input type="email" id="lookupEmail" placeholder="Enter your application email..." />
-        <button id="lookupBtn" class="btn btn-primary">Check Status</button>
-      </div>
-
-      <div id="myAppsResults" class="my-apps-list">
-        <p class="text-muted text-center" style="margin-top: 20px;">No applications loaded yet.</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal 4: "Post an Internship" Modal -->
+  <!-- ======================================================== -->
+  <!-- MODAL: POST AN INTERNSHIP                                -->
+  <!-- ======================================================== -->
   <div id="postModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="postModalTitle">
     <div class="modal-box modal-lg">
       <button class="close" id="closePostModal" aria-label="Close dialog">✕</button>
@@ -246,12 +610,10 @@
           <div class="form-group">
             <label for="postTitle">Job Role Title <span class="required">*</span></label>
             <input type="text" id="postTitle" placeholder="e.g. Python Backend Intern" required minlength="3" maxlength="120" />
-            <span class="field-error" id="err-postTitle"></span>
           </div>
           <div class="form-group">
             <label for="postCompany">Company Name <span class="required">*</span></label>
             <input type="text" id="postCompany" placeholder="e.g. TechCorp India" required minlength="2" maxlength="120" />
-            <span class="field-error" id="err-postCompany"></span>
           </div>
         </div>
 
@@ -265,13 +627,11 @@
               <option value="Artificial Intelligence">AI & ML</option>
               <option value="Cybersecurity">Cybersecurity</option>
               <option value="DevOps">Cloud & DevOps</option>
-              <option value="Product Design">Product Design</option>
             </select>
           </div>
           <div class="form-group">
             <label for="postLocation">Location <span class="required">*</span></label>
             <input type="text" id="postLocation" placeholder="e.g. Hyderabad, Bengaluru, or Remote" required />
-            <span class="field-error" id="err-postLocation"></span>
           </div>
         </div>
 
@@ -285,28 +645,24 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="postDuration">Duration (Months) <span class="required">*</span></label>
+            <label for="postDuration">Duration (Months)</label>
             <input type="number" id="postDuration" min="1" max="12" value="3" required />
-            <span class="field-error" id="err-postDuration"></span>
           </div>
           <div class="form-group">
-            <label for="postStipend">Monthly Stipend (₹) <span class="required">*</span></label>
-            <input type="number" id="postStipend" min="0" placeholder="e.g. 15000" value="15000" required />
-            <span class="field-error" id="err-postStipend"></span>
+            <label for="postStipend">Monthly Stipend (₹)</label>
+            <input type="number" id="postStipend" min="0" value="15000" required />
           </div>
         </div>
 
         <div class="form-group">
           <label for="postSkills">Required Skills (Comma separated) <span class="required">*</span></label>
           <input type="text" id="postSkills" placeholder="e.g. Python, FastAPI, SQLite, Docker" required />
-          <span class="field-error" id="err-postSkills"></span>
         </div>
 
         <div class="form-row">
           <div class="form-group">
             <label for="postDeadline">Application Deadline <span class="required">*</span></label>
             <input type="date" id="postDeadline" required />
-            <span class="field-error" id="err-postDeadline"></span>
           </div>
           <div class="form-group">
             <label for="postStatus">Listing Status</label>
@@ -318,46 +674,36 @@
         </div>
 
         <div class="form-group">
-          <label for="postDesc">Job Description & Learning Outcomes <span class="required">*</span></label>
-          <textarea id="postDesc" rows="4" maxlength="5000" placeholder="Describe the responsibilities, perks, and what the intern will learn..." required></textarea>
-          <span class="field-error" id="err-postDesc"></span>
+          <label for="postDesc">Description <span class="required">*</span></label>
+          <textarea id="postDesc" rows="3" placeholder="Describe the responsibilities and learning outcomes..." required></textarea>
         </div>
 
         <div class="modal-footer">
           <button type="button" class="btn btn-ghost" id="cancelPostBtn">Cancel</button>
-          <button type="submit" class="btn btn-primary" id="submitPostBtn">
-            <span class="btn-text">Publish Internship ✨</span>
-            <span class="spinner" hidden></span>
-          </button>
+          <button type="submit" class="btn btn-primary" id="submitPostBtn">Publish Internship ✨</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Modal 5: "View Applications for Role" (Recruiter view) -->
-  <div id="applicantsModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="applicantsModalTitle">
-    <div class="modal-box modal-lg">
-      <button class="close" id="closeApplicantsModal" aria-label="Close dialog">✕</button>
-      <div class="modal-header">
-        <span class="modal-badge">Recruiter Dashboard</span>
-        <h2 id="applicantsModalTitle">Candidates for Position</h2>
-        <p class="modal-subtitle" id="applicantsModalSubtitle">Loading applicants...</p>
-      </div>
 
-      <div id="applicantsList" class="my-apps-list">
-        <p class="text-muted text-center" style="margin:20px 0;">Loading applicants...</p>
-      </div>
+  <!-- ======================================================== -->
+  <!-- MODAL: INTERNSHIP DETAILS                                -->
+  <!-- ======================================================== -->
+  <div id="detailModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <div class="modal-box modal-lg">
+      <button class="close" id="closeDetailModal" aria-label="Close dialog">✕</button>
+      <div id="detailContent"></div>
     </div>
   </div>
 
   <!-- Footer -->
   <footer class="footer">
     <div class="container footer-content">
-      <p>🎯 <strong>InternshipChesko</strong> – Built with Python, FastAPI, SQLite (WAL) & Vanilla Web Technologies.</p>
-      <p style="font-size: 0.82rem; color: #868e96;">Protected by Sliding-Window Rate Limiting, CSP Security Headers & Parameterized Queries.</p>
+      <p>🎯 <strong>InternshipChesko</strong> – Professional Internship Management Platform.</p>
       <div class="footer-links">
-        <a href="/docs" target="_blank" rel="noopener">Interactive API Docs</a>
-        <a href="/health" target="_blank" rel="noopener">System Health Telemetry</a>
+        <a href="/docs" target="_blank" rel="noopener">API Documentation</a>
+        <a href="/health" target="_blank" rel="noopener">Health Telemetry</a>
         <a href="https://github.com/kalakonda-akshay/edvyro_5" target="_blank" rel="noopener">GitHub Repository</a>
       </div>
     </div>

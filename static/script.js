@@ -1,14 +1,12 @@
 /**
- * InternshipChesko 🎯 Full Application Script
- * Features:
- * - Dynamic fetch with loading & retry states
- * - Real-time multi-facet filtering (search, category pills, mode, stipend, status, saved)
- * - Candidate Application submission with dual client & server validation
- * - Recruiter "Post an Internship" publishing directly into SQLite via REST API
- * - Recruiter "View Candidates" for any internship listing
- * - "My Applications" tracking by email
- * - Bookmark saving with localStorage persistence
- * - One-click Share to clipboard with toast notification
+ * InternshipChesko 🎯 Full Platform Client Script
+ * Complete integration:
+ * - 2 Dedicated Panels: Intern Portal & Admin Dashboard
+ * - Real-time Panel Switching
+ * - Intern Registration & Profile Persistence
+ * - 5 Milestone Task Submissions, Admin Reviews, and Approvals
+ * - Verified Certificate Generation, Verification & Print/PDF Engine
+ * - Public Job Board, Filters, and Job Applications
  */
 
 const API_BASE = window.location.origin.includes(":80") ? window.location.origin : "http://127.0.0.1:8000";
@@ -17,58 +15,11 @@ const API_BASE = window.location.origin.includes(":80") ? window.location.origin
 let allInternships = [];
 let savedIds = JSON.parse(localStorage.getItem("internship_chesko_saved") || "[]");
 let activeCategory = "";
+let currentInternUser = JSON.parse(localStorage.getItem("internship_chesko_user") || "null");
+let currentViewingCertificate = null;
 
-// Element Selectors
+// DOM Utilities
 const $ = (id) => document.getElementById(id);
-const loadingState = $("loadingState");
-const failureState = $("failureState");
-const emptyState = $("emptyState");
-const internshipGrid = $("internshipGrid");
-const failureMessage = $("failureMessage");
-const resultCount = $("resultCount");
-const apiStatusBadge = $("apiStatusBadge");
-const retryBtn = $("retryBtn");
-const refreshBtn = $("refreshBtn");
-
-// Modals
-const applyModal = $("applyModal");
-const applyForm = $("applyForm");
-const applyAlert = $("applyAlert");
-const submitApplyBtn = $("submitApplyBtn");
-const cancelApplyBtn = $("cancelApplyBtn");
-const closeApplyModal = $("closeApplyModal");
-
-const detailModal = $("detailModal");
-const detailContent = $("detailContent");
-const closeDetailModal = $("closeDetailModal");
-
-const myAppsModal = $("myAppsModal");
-const closeMyAppsModal = $("closeMyAppsModal");
-
-const postModal = $("postModal");
-const postForm = $("postForm");
-const postAlert = $("postAlert");
-const submitPostBtn = $("submitPostBtn");
-const cancelPostBtn = $("cancelPostBtn");
-const closePostModal = $("closePostModal");
-const postInternshipBtn = $("postInternshipBtn");
-
-const applicantsModal = $("applicantsModal");
-const closeApplicantsModal = $("closeApplicantsModal");
-const applicantsList = $("applicantsList");
-
-const filtersDrawer = $("filters");
-
-// Utilities
-const formatCurrency = (val) => (val ? "₹" + Number(val).toLocaleString("en-IN") + "/mo" : "Unpaid / Experience");
-const formatDate = (isoStr) => {
-  if (!isoStr) return "Rolling admission";
-  try {
-    return new Date(isoStr).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-  } catch (e) {
-    return isoStr;
-  }
-};
 
 function showToast(message) {
   const container = $("toastContainer");
@@ -76,60 +27,605 @@ function showToast(message) {
   toast.className = "toast";
   toast.textContent = message;
   container.appendChild(toast);
-  setTimeout(() => {
-    toast.remove();
-  }, 3200);
+  setTimeout(() => { toast.remove(); }, 3200);
 }
 
 // -------------------------------------------------------------
-// 1. Data Fetching & State Management
+// 1. Navigation Panel Switcher
 // -------------------------------------------------------------
-async function fetchInternships() {
-  loadingState.hidden = false;
-  failureState.hidden = true;
-  emptyState.hidden = true;
-  internshipGrid.hidden = true;
-  resultCount.textContent = "Connecting to InternshipChesko API...";
+function switchView(targetViewId) {
+  document.querySelectorAll(".portal-view").forEach((v) => v.classList.remove("active"));
+  document.querySelectorAll(".nav-tab").forEach((t) => t.classList.remove("active"));
 
-  apiStatusBadge.className = "api-badge connecting";
-  apiStatusBadge.querySelector(".status-text").textContent = "Connecting API...";
+  const targetView = $(targetViewId);
+  if (targetView) targetView.classList.add("active");
 
-  try {
-    const res = await fetch(`${API_BASE}/internships?limit=100`, {
-      headers: { "Accept": "application/json" }
-    });
+  const activeTab = document.querySelector(`.nav-tab[data-view="${targetViewId}"]`);
+  if (activeTab) activeTab.classList.add("active");
 
-    if (!res.ok) {
-      throw new Error(`Server returned HTTP ${res.status}`);
-    }
+  window.scrollTo({ top: 0, behavior: "smooth" });
 
-    const json = await res.json();
-    allInternships = json.data || [];
-
-    apiStatusBadge.className = "api-badge connected";
-    apiStatusBadge.querySelector(".status-text").textContent = "API Live 🟢";
-
-    loadingState.hidden = true;
-    renderListings();
-  } catch (err) {
-    console.error("API error:", err);
-    loadingState.hidden = true;
-    internshipGrid.hidden = true;
-    emptyState.hidden = true;
-
-    failureState.hidden = false;
-    failureMessage.textContent = `Unable to connect to the backend server (${err.message}). Verify the API is running on ${API_BASE}.`;
-
-    apiStatusBadge.className = "api-badge error";
-    apiStatusBadge.querySelector(".status-text").textContent = "Offline 🔴";
-    resultCount.textContent = "0 positions loaded";
+  if (targetViewId === "view-admin") {
+    loadAdminDashboard();
+  } else if (targetViewId === "view-intern") {
+    refreshInternPortal();
+  } else if (targetViewId === "view-browse") {
+    if (allInternships.length === 0) fetchInternships();
   }
 }
 
+document.querySelectorAll(".nav-tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const viewId = tab.getAttribute("data-view");
+    switchView(viewId);
+  });
+});
+
 // -------------------------------------------------------------
-// 2. Multi-Facet Filtering & Sorting
+// 2. Intern Portal: Registration, Tasks & Progress
 // -------------------------------------------------------------
-function getFilteredResults() {
+function refreshInternPortal() {
+  const authSec = $("internAuthSection");
+  const dashSec = $("internDashboardSection");
+  const navBadge = $("internNavBadge");
+
+  if (!currentInternUser) {
+    authSec.hidden = false;
+    dashSec.hidden = true;
+    navBadge.hidden = true;
+  } else {
+    authSec.hidden = true;
+    dashSec.hidden = false;
+    navBadge.hidden = false;
+    navBadge.textContent = currentInternUser.name.split(" ")[0];
+
+    // Populate Profile Header
+    $("profileName").textContent = currentInternUser.name;
+    $("profileDomain").textContent = currentInternUser.domain || "Full Stack Web Development";
+    $("profileCollege").textContent = currentInternUser.college || "Engineering College";
+    $("profileEmail").textContent = currentInternUser.email;
+
+    // Fetch Milestone Tasks for User
+    loadInternTasks();
+  }
+}
+
+$("internRegForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("internName").value.trim();
+  const email = $("internEmail").value.trim().toLowerCase();
+  const phone = $("internPhone").value.trim();
+  const college = $("internCollege").value.trim();
+  const domain = $("internDomain").value;
+
+  if (!name || !email || !college) {
+    showToast("Please fill in all required registration fields.");
+    return;
+  }
+
+  const payload = { name, email, phone, college, domain, role: "intern" };
+  const regBtn = $("internRegBtn");
+  regBtn.disabled = true;
+  regBtn.textContent = "Registering...";
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+
+    if (res.ok) {
+      currentInternUser = json.data;
+      localStorage.setItem("internship_chesko_user", JSON.stringify(currentInternUser));
+      showToast(`Welcome, ${currentInternUser.name}! 🎯`);
+      refreshInternPortal();
+    } else {
+      showToast(json.error?.message || "Registration failed.");
+    }
+  } catch (err) {
+    showToast("Network error during registration.");
+  } finally {
+    regBtn.disabled = false;
+    regBtn.textContent = "Enter My Intern Dashboard 🚀";
+  }
+});
+
+$("switchUserBtn").addEventListener("click", () => {
+  if (confirm("Do you want to switch or log out of this intern account?")) {
+    currentInternUser = null;
+    localStorage.removeItem("internship_chesko_user");
+    refreshInternPortal();
+    showToast("Logged out of intern account");
+  }
+});
+
+async function loadInternTasks() {
+  if (!currentInternUser) return;
+  const listEl = $("tasksList");
+  listEl.innerHTML = `<p class="text-muted text-center" style="margin:20px 0;">Loading assigned milestone tasks...</p>`;
+
+  try {
+    const res = await fetch(`${API_BASE}/users/${currentInternUser.id}/tasks`);
+    const json = await res.json();
+    const data = json.data || {};
+    const tasks = data.tasks || [];
+
+    // Update Progress Bar
+    const pct = data.progress_percent || 0;
+    $("progressPercentText").textContent = `${pct}%`;
+    $("tasksScoreText").textContent = `${data.approved_count}/${data.total_tasks} Approved`;
+    $("progressBarFill").style.width = `${pct}%`;
+
+    // Check Certificate Status
+    const certBox = $("certUnlockedBox");
+    if (data.certificate_unlocked && data.certificate) {
+      certBox.hidden = false;
+      currentViewingCertificate = data.certificate;
+    } else {
+      certBox.hidden = true;
+    }
+
+    // Render Milestone Tasks
+    listEl.innerHTML = tasks.map((t) => {
+      const status = t.submission_status;
+      let badgeClass = "badge-status-closed";
+      let statusLabel = "Not Submitted";
+      let btnLabel = "Submit Task Solution 🚀";
+
+      if (status === "approved") {
+        badgeClass = "badge-status-open";
+        statusLabel = "✅ Approved";
+        btnLabel = "Update Submission";
+      } else if (status === "pending") {
+        badgeClass = "badge-mode";
+        statusLabel = "⏳ Under Review";
+        btnLabel = "Edit Submission";
+      } else if (status === "rejected") {
+        badgeClass = "badge-danger";
+        statusLabel = "❌ Changes Requested";
+        btnLabel = "Re-submit Solution 🚀";
+      }
+
+      return `
+        <article class="task-item-card ${status}">
+          <div class="task-card-header">
+            <div>
+              <span class="modal-badge">Milestone ${t.task_num} of 5</span>
+              <h4 class="task-card-title">${t.title}</h4>
+            </div>
+            <span class="badge ${badgeClass}">${statusLabel}</span>
+          </div>
+
+          <p class="task-obj"><strong>Objective:</strong> ${t.objective}</p>
+          <p class="task-deliverable"><strong>Deliverable:</strong> ${t.deliverable}</p>
+
+          ${t.submission_url ? `
+            <div class="task-submission-info">
+              <div><strong>Submitted URL:</strong> <a href="${t.submission_url}" target="_blank" rel="noopener">${t.submission_url}</a></div>
+              ${t.submission_notes ? `<div style="margin-top:4px;"><strong>Notes:</strong> ${t.submission_notes}</div>` : ""}
+            </div>
+          ` : ""}
+
+          ${t.submission_feedback ? `
+            <div class="task-feedback-box">
+              <strong>Admin Feedback:</strong> ${t.submission_feedback}
+            </div>
+          ` : ""}
+
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+            <button class="btn btn-outline btn-sm" data-action="submit-task" data-task-id="${t.id}" data-task-title="${t.title}" data-url="${t.submission_url || ""}" data-notes="${t.submission_notes || ""}">
+              ${btnLabel}
+            </button>
+          </div>
+        </article>
+      `;
+    }).join("");
+  } catch (err) {
+    listEl.innerHTML = `<p style="color:var(--danger); text-align:center;">Failed to load tasks.</p>`;
+  }
+}
+
+// Task Submission Modal Handling
+$("tasksList").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action='submit-task']");
+  if (!btn) return;
+  const taskId = btn.getAttribute("data-task-id");
+  const taskTitle = btn.getAttribute("data-task-title");
+  const url = btn.getAttribute("data-url");
+  const notes = btn.getAttribute("data-notes");
+
+  $("submitTaskId").value = taskId;
+  $("submitTaskModalSubtitle").textContent = taskTitle;
+  $("taskSubmissionUrl").value = url;
+  $("taskNotes").value = notes;
+  $("err-taskSubmissionUrl").textContent = "";
+  $("taskSubmitAlert").hidden = true;
+
+  $("submitTaskModal").hidden = false;
+  $("taskSubmissionUrl").focus();
+});
+
+$("closeSubmitTaskModal").addEventListener("click", () => { $("submitTaskModal").hidden = true; });
+$("cancelSubmitTaskBtn").addEventListener("click", () => { $("submitTaskModal").hidden = true; });
+
+$("taskSubmitForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const taskId = $("submitTaskId").value;
+  const submissionUrl = $("taskSubmissionUrl").value.trim();
+  const notes = $("taskNotes").value.trim();
+
+  if (!submissionUrl || !/^https?:\/\/.+/i.test(submissionUrl)) {
+    $("err-taskSubmissionUrl").textContent = "Please provide a valid URL starting with http:// or https://";
+    return;
+  }
+
+  const confirmBtn = $("confirmSubmitTaskBtn");
+  const btnText = confirmBtn.querySelector(".btn-text");
+  const spinner = confirmBtn.querySelector(".spinner");
+  confirmBtn.disabled = true;
+  btnText.textContent = "Submitting...";
+  spinner.hidden = false;
+
+  try {
+    const res = await fetch(`${API_BASE}/users/${currentInternUser.id}/tasks/${taskId}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ submission_url: submissionUrl, notes }),
+    });
+    const json = await res.json();
+
+    if (res.ok) {
+      showToast("🚀 Task milestone submitted for Admin review!");
+      $("submitTaskModal").hidden = true;
+      loadInternTasks();
+    } else {
+      showToast(json.error?.message || "Failed to submit task.");
+    }
+  } catch (err) {
+    showToast("Network error during task submission.");
+  } finally {
+    confirmBtn.disabled = false;
+    btnText.textContent = "Submit for Admin Review 🚀";
+    spinner.hidden = true;
+  }
+});
+
+// View Certificate Button
+$("viewMyCertBtn").addEventListener("click", () => {
+  if (currentViewingCertificate) {
+    renderCertificate(currentViewingCertificate);
+  }
+});
+
+// -------------------------------------------------------------
+// 3. Admin Dashboard & Review Hub (Panel 2)
+// -------------------------------------------------------------
+async function loadAdminDashboard() {
+  loadAdminMetrics();
+  loadAdminSubmissions();
+  loadAdminInterns();
+  loadAdminApplications();
+}
+
+async function loadAdminMetrics() {
+  try {
+    const res = await fetch(`${API_BASE}/admin/metrics`);
+    const json = await res.json();
+    const m = json.data || {};
+    $("kpiInterns").textContent = m.total_interns || 0;
+    $("kpiPending").textContent = m.pending_task_reviews || 0;
+    $("adminPendingCount").textContent = m.pending_task_reviews || 0;
+    $("kpiCertificates").textContent = m.certificates_issued || 0;
+    $("kpiApplications").textContent = m.total_applications || 0;
+
+    const navBadge = $("adminPendingBadge");
+    if (m.pending_task_reviews > 0) {
+      navBadge.hidden = false;
+      navBadge.textContent = `${m.pending_task_reviews} Pending`;
+    } else {
+      navBadge.hidden = true;
+    }
+  } catch (err) {
+    console.error("Failed to load admin metrics:", err);
+  }
+}
+
+async function loadAdminSubmissions() {
+  const tbody = $("adminSubmissionsTbody");
+  tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Loading submissions...</td></tr>`;
+
+  try {
+    const res = await fetch(`${API_BASE}/admin/submissions`);
+    const json = await res.json();
+    const items = json.data || [];
+
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No intern task submissions recorded yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map((sub) => {
+      let statusBadge = `<span class="badge badge-mode">⏳ Under Review</span>`;
+      if (sub.status === "approved") statusBadge = `<span class="badge badge-status-open">✅ Approved</span>`;
+      if (sub.status === "rejected") statusBadge = `<span class="badge badge-danger">❌ Rejected</span>`;
+
+      return `
+        <tr>
+          <td>
+            <strong>${sub.intern_name}</strong>
+            <div style="font-size:0.8rem; color:#868e96;">${sub.college}</div>
+          </td>
+          <td>
+            <strong>Task ${sub.task_num}:</strong> ${sub.task_title}
+          </td>
+          <td>
+            <a href="${sub.submission_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">
+              🔗 View Deliverable
+            </a>
+            ${sub.notes ? `<div style="font-size:0.8rem; color:#6c757d; margin-top:2px;">"${sub.notes}"</div>` : ""}
+          </td>
+          <td>${statusBadge}</td>
+          <td style="font-size:0.82rem; color:#868e96;">${formatDate(sub.submitted_at)}</td>
+          <td>
+            <div style="display:flex; gap:6px;">
+              <button class="btn btn-success btn-sm" data-action="review-sub" data-sub-id="${sub.id}" data-decision="approved" title="Approve Task">
+                ✅ Approve
+              </button>
+              <button class="btn btn-outline btn-sm" data-action="review-sub" data-sub-id="${sub.id}" data-decision="rejected" title="Request Changes">
+                ❌ Reject
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load submissions.</td></tr>`;
+  }
+}
+
+// Admin Submissions Action Handler
+$("adminSubmissionsTbody").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action='review-sub']");
+  if (!btn) return;
+  const subId = btn.getAttribute("data-sub-id");
+  const decision = btn.getAttribute("data-decision");
+
+  let feedback = "";
+  if (decision === "rejected") {
+    feedback = prompt("Enter feedback / reason for requesting changes:", "Please verify all task requirements and re-test.") || "";
+  }
+
+  btn.disabled = true;
+  try {
+    const res = await fetch(`${API_BASE}/admin/submissions/${subId}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: decision, feedback }),
+    });
+    const json = await res.json();
+
+    if (res.ok) {
+      showToast(json.message);
+      loadAdminDashboard();
+      if (currentInternUser) loadInternTasks();
+    } else {
+      showToast(json.error?.message || "Failed to submit review.");
+    }
+  } catch (err) {
+    showToast("Network error during review.");
+  }
+});
+
+async function loadAdminInterns() {
+  const tbody = $("adminInternsTbody");
+  try {
+    const res = await fetch(`${API_BASE}/admin/interns`);
+    const json = await res.json();
+    const interns = json.data || [];
+
+    if (interns.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No interns registered yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = interns.map((i) => `
+      <tr>
+        <td>
+          <strong>${i.name}</strong>
+          <div style="font-size:0.8rem; color:#868e96;">${i.email} · ${i.phone || "No phone"}</div>
+        </td>
+        <td>${i.college}</td>
+        <td><span class="badge badge-category">${i.domain}</span></td>
+        <td><strong>${i.approved_tasks} / 5</strong> Approved</td>
+        <td>
+          ${i.has_certificate ? `<span class="badge badge-status-open">🎓 Issued</span>` : `<span class="badge badge-status-closed">Pending</span>`}
+        </td>
+        <td>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-outline btn-sm" data-action="view-intern-cert" data-user-id="${i.id}">
+              ${i.has_certificate ? "View Certificate" : "Issue Certificate"}
+            </button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load interns roster.</td></tr>`;
+  }
+}
+
+// View Certificate from Admin Roster
+$("adminInternsTbody").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-action='view-intern-cert']");
+  if (!btn) return;
+  const userId = btn.getAttribute("data-user-id");
+
+  try {
+    let res = await fetch(`${API_BASE}/users/${userId}/certificate`);
+    if (res.status === 404) {
+      // Manual Issuance Option
+      if (confirm("No certificate issued yet. Would you like to issue an official certificate now?")) {
+        const issueRes = await fetch(`${API_BASE}/admin/certificates/issue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: Number(userId), grade: "Outstanding (A+)" }),
+        });
+        const issueJson = await issueRes.json();
+        if (issueRes.ok) {
+          showToast("Certificate issued successfully! 🎓");
+          renderCertificate(issueJson.data);
+          loadAdminDashboard();
+        }
+      }
+      return;
+    }
+
+    const json = await res.json();
+    if (res.ok && json.data) {
+      renderCertificate(json.data);
+    }
+  } catch (err) {
+    showToast("Error retrieving certificate.");
+  }
+});
+
+async function loadAdminApplications() {
+  const tbody = $("adminApplicationsTbody");
+  try {
+    const res = await fetch(`${API_BASE}/internships?limit=100`);
+    const json = await res.json();
+    const internships = json.data || [];
+
+    let allApps = [];
+    for (const item of internships) {
+      const appRes = await fetch(`${API_BASE}/internships/${item.id}/applications`);
+      const appJson = await appRes.json();
+      const apps = (appJson.data || []).map((a) => ({ ...a, role_title: item.title, role_company: item.company }));
+      allApps.push(...apps);
+    }
+
+    if (allApps.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="padding:24px;">No job applications submitted yet.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = allApps.map((a) => `
+      <tr>
+        <td>
+          <strong>${a.full_name}</strong>
+          <div style="font-size:0.8rem; color:#868e96;">Applying for: ${a.role_title} (${a.role_company})</div>
+        </td>
+        <td>
+          <div>${a.email}</div>
+          <div style="font-size:0.8rem; color:#868e96;">${a.phone}</div>
+        </td>
+        <td>
+          <a href="${a.resume_url}" target="_blank" rel="noopener" style="color:var(--primary); font-weight:600;">
+            📄 View Resume
+          </a>
+        </td>
+        <td style="font-size:0.84rem; max-width:260px; color:#495057;">${a.cover_letter || "None"}</td>
+        <td style="font-size:0.82rem; color:#868e96;">${formatDate(a.created_at)}</td>
+      </tr>
+    `).join("");
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load applications.</td></tr>`;
+  }
+}
+
+// Admin Subtabs Switching
+document.querySelectorAll(".subtab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".subtab").forEach((s) => s.classList.remove("active"));
+    document.querySelectorAll(".admin-tab-content").forEach((c) => c.classList.remove("active"));
+
+    tab.classList.add("active");
+    const targetId = tab.getAttribute("data-subtab");
+    $(targetId).classList.add("active");
+  });
+});
+
+$("refreshAdminBtn").addEventListener("click", () => {
+  loadAdminDashboard();
+  showToast("Dashboard synchronized! ↻");
+});
+
+// -------------------------------------------------------------
+// 4. Authentic Verified Certificate Engine
+// -------------------------------------------------------------
+function renderCertificate(cert) {
+  currentViewingCertificate = cert;
+
+  $("certInternName").textContent = cert.intern_name.toUpperCase();
+  $("certCollege").textContent = `from ${cert.college}`;
+  $("certDomain").textContent = cert.domain;
+  $("certStartDate").textContent = formatDate(cert.start_date || "2026-09-01");
+  $("certEndDate").textContent = formatDate(cert.completion_date);
+  $("certGrade").textContent = cert.grade || "Outstanding (A+)";
+  $("certIdDisplay").textContent = cert.certificate_id;
+
+  const verifyUrl = `${API_BASE}/certificates/${cert.certificate_id}`;
+  $("certVerifyUrl").textContent = verifyUrl;
+
+  $("certificateModal").hidden = false;
+}
+
+$("closeCertModal").addEventListener("click", () => { $("certificateModal").hidden = true; });
+
+$("printCertBtn").addEventListener("click", () => {
+  window.print();
+});
+
+$("copyCertLinkBtn").addEventListener("click", () => {
+  if (currentViewingCertificate) {
+    const url = `${API_BASE}/certificates/${currentViewingCertificate.certificate_id}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url);
+      showToast("Verification link copied to clipboard! 📋");
+    } else {
+      showToast(url);
+    }
+  }
+});
+
+// -------------------------------------------------------------
+// 5. Explore Internships (Public Board)
+// -------------------------------------------------------------
+async function fetchInternships() {
+  $("loadingState").hidden = false;
+  $("failureState").hidden = true;
+  $("emptyState").hidden = true;
+  $("internshipGrid").hidden = true;
+  $("resultCount").textContent = "Connecting to InternshipChesko API...";
+
+  $("apiStatusBadge").className = "api-badge connecting";
+  $("apiStatusBadge").querySelector(".status-text").textContent = "Connecting API...";
+
+  try {
+    const res = await fetch(`${API_BASE}/internships?limit=100`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    allInternships = json.data || [];
+
+    $("apiStatusBadge").className = "api-badge connected";
+    $("apiStatusBadge").querySelector(".status-text").textContent = "API Live 🟢";
+
+    $("loadingState").hidden = true;
+    renderListings();
+  } catch (err) {
+    $("loadingState").hidden = true;
+    $("internshipGrid").hidden = true;
+    $("failureState").hidden = false;
+    $("failureMessage").textContent = `Unable to connect to backend server (${err.message}). Ensure the server is running on ${API_BASE}.`;
+    $("apiStatusBadge").className = "api-badge error";
+    $("apiStatusBadge").querySelector(".status-text").textContent = "Offline 🔴";
+  }
+}
+
+function renderListings() {
   const query = ($("search").value || "").trim().toLowerCase();
   const mode = $("workModeFilter").value;
   const status = $("statusFilter").value;
@@ -137,56 +633,44 @@ function getFilteredResults() {
   const sort = $("sortFilter").value;
   const savedOnly = $("savedOnly").checked;
 
-  let list = allInternships.filter((item) => {
-    // Search keyword
+  let items = allInternships.filter((item) => {
     if (query) {
       const skillsStr = Array.isArray(item.skills) ? item.skills.join(" ") : "";
       const text = [item.title, item.company, item.location, item.category, skillsStr, item.description].join(" ").toLowerCase();
       if (!text.includes(query)) return false;
     }
-    // Category pill
     if (activeCategory && item.category !== activeCategory) return false;
-    // Work Mode
     if (mode && item.work_mode !== mode) return false;
-    // Status
     if (status && item.status !== status) return false;
-    // Minimum Stipend
     if (minStipend > 0 && (item.stipend || 0) < minStipend) return false;
-    // Saved
     if (savedOnly && !savedIds.includes(item.id)) return false;
-
     return true;
   });
 
   if (sort === "stipend-high") {
-    list.sort((a, b) => (b.stipend || 0) - (a.stipend || 0));
+    items.sort((a, b) => (b.stipend || 0) - (a.stipend || 0));
   } else if (sort === "deadline-soon") {
-    list.sort((a, b) => {
+    items.sort((a, b) => {
       if (!a.deadline) return 1;
       if (!b.deadline) return -1;
       return new Date(a.deadline) - new Date(b.deadline);
     });
   } else {
-    list.sort((a, b) => a.id - b.id);
+    items.sort((a, b) => a.id - b.id);
   }
 
-  return list;
-}
-
-function renderListings() {
-  const items = getFilteredResults();
-  resultCount.textContent = `${items.length} position${items.length === 1 ? "" : "s"} found`;
+  $("resultCount").textContent = `${items.length} position${items.length === 1 ? "" : "s"} found`;
   $("savedCount").textContent = savedIds.length;
 
   if (items.length === 0) {
-    emptyState.hidden = false;
-    internshipGrid.hidden = true;
+    $("emptyState").hidden = false;
+    $("internshipGrid").hidden = true;
     return;
   }
 
-  emptyState.hidden = true;
-  internshipGrid.hidden = false;
-  internshipGrid.innerHTML = "";
+  $("emptyState").hidden = true;
+  $("internshipGrid").hidden = false;
+  $("internshipGrid").innerHTML = "";
 
   items.forEach((item) => {
     const isSaved = savedIds.includes(item.id);
@@ -226,12 +710,12 @@ function renderListings() {
         </button>
       </div>
     `;
-    internshipGrid.appendChild(card);
+    $("internshipGrid").appendChild(card);
   });
 }
 
 // -------------------------------------------------------------
-// 3. Application Form Submission & Client Validation
+// 6. Apply to Internship Modal
 // -------------------------------------------------------------
 function openApplyModal(id) {
   const item = allInternships.find((i) => i.id === Number(id));
@@ -241,169 +725,130 @@ function openApplyModal(id) {
   $("applyModalTitle").textContent = `Apply for ${item.title}`;
   $("applyModalSubtitle").textContent = `${item.company} · ${item.location} (${item.work_mode})`;
 
-  applyForm.reset();
-  $("charCount").textContent = "0";
-  clearErrors();
-  hideAlert(applyAlert);
-
-  applyModal.hidden = false;
+  $("applyForm").reset();
+  if (currentInternUser) {
+    $("fullName").value = currentInternUser.name;
+    $("email").value = currentInternUser.email;
+    $("phone").value = currentInternUser.phone || "";
+  }
+  $("applyAlert").hidden = true;
+  $("applyModal").hidden = false;
   $("fullName").focus();
 }
 
-function closeApplyModalView() {
-  applyModal.hidden = true;
-  applyForm.reset();
-  clearErrors();
-  hideAlert(applyAlert);
-}
+$("closeApplyModal").addEventListener("click", () => { $("applyModal").hidden = true; });
+$("cancelApplyBtn").addEventListener("click", () => { $("applyModal").hidden = true; });
 
-function showAlert(alertEl, type, msg) {
-  alertEl.className = `alert-box ${type}`;
-  alertEl.textContent = msg;
-  alertEl.hidden = false;
-}
-
-function hideAlert(alertEl) {
-  alertEl.hidden = true;
-}
-
-function setFieldError(field, msg) {
-  const input = $(field);
-  const err = $(`err-${field}`);
-  if (input) input.classList.add("invalid");
-  if (err) err.textContent = msg;
-}
-
-function clearFieldError(field) {
-  const input = $(field);
-  const err = $(`err-${field}`);
-  if (input) input.classList.remove("invalid");
-  if (err) err.textContent = "";
-}
-
-function clearErrors() {
-  ["fullName", "email", "phone", "resumeUrl", "coverLetter"].forEach(clearFieldError);
-}
-
-function validateForm() {
-  clearErrors();
-  let valid = true;
-
-  const name = $("fullName").value.trim();
-  const email = $("email").value.trim();
-  const phone = $("phone").value.trim();
-  const resume = $("resumeUrl").value.trim();
-
-  if (!name || name.length < 2) {
-    setFieldError("fullName", "Full legal name must be at least 2 characters.");
-    valid = false;
-  }
-
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!email || !emailRegex.test(email)) {
-    setFieldError("email", "Provide a valid email address (e.g. name@domain.com).");
-    valid = false;
-  }
-
-  const phoneRegex = /^\+?[0-9\s\-()]{7,25}$/;
-  if (!phone || !phoneRegex.test(phone)) {
-    setFieldError("phone", "Provide a valid contact phone number (at least 7 digits).");
-    valid = false;
-  }
-
-  if (!resume || !/^https?:\/\/.+/i.test(resume)) {
-    setFieldError("resumeUrl", "Resume URL must begin with http:// or https://");
-    valid = false;
-  }
-
-  return valid;
-}
-
-applyForm.addEventListener("submit", async (e) => {
+$("applyForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  hideAlert(applyAlert);
-
-  if (!validateForm()) return;
-
   const internshipId = $("applyInternshipId").value;
-  const payload = {
-    full_name: $("fullName").value.trim(),
-    email: $("email").value.trim().toLowerCase(),
-    phone: $("phone").value.trim(),
-    resume_url: $("resumeUrl").value.trim(),
-    cover_letter: $("coverLetter").value.trim()
-  };
+  const fullName = $("fullName").value.trim();
+  const email = $("email").value.trim().toLowerCase();
+  const phone = $("phone").value.trim();
+  const resumeUrl = $("resumeUrl").value.trim();
+  const coverLetter = $("coverLetter").value.trim();
 
-  const btnText = submitApplyBtn.querySelector(".btn-text");
-  const spinner = submitApplyBtn.querySelector(".spinner");
-  submitApplyBtn.disabled = true;
-  btnText.textContent = "Verifying & Submitting...";
-  spinner.hidden = false;
+  if (!fullName || !email || !phone || !resumeUrl) {
+    showToast("Please complete all required fields.");
+    return;
+  }
+
+  const payload = { full_name: fullName, email, phone, resume_url: resumeUrl, cover_letter: coverLetter };
+  const btn = $("submitApplyBtn");
+  btn.disabled = true;
 
   try {
     const res = await fetch(`${API_BASE}/internships/${internshipId}/apply`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify(payload)
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
-
-    const data = await res.json();
+    const json = await res.json();
 
     if (res.status === 201) {
-      showAlert(applyAlert, "success", `🎉 ${data.data.message}`);
-      showToast("Application submitted successfully! 🚀");
-      applyForm.reset();
-      $("charCount").textContent = "0";
-
-      // Save email for quick candidate lookup
-      localStorage.setItem("internhub_last_email", payload.email);
-
-      setTimeout(() => {
-        closeApplyModalView();
-      }, 2400);
+      showToast("🎉 Application submitted successfully!");
+      $("applyModal").hidden = true;
     } else {
-      const err = data.error || {};
-      if (err.code === "DUPLICATE_APPLICATION") {
-        showAlert(applyAlert, "error", "⚠️ Duplicate application: You have already applied for this opening.");
-        setFieldError("email", "Application already on file.");
-      } else if (err.code === "RATE_LIMITED") {
-        showAlert(applyAlert, "error", `⏳ ${err.message}`);
-      } else if (err.code === "VALIDATION_ERROR" && Array.isArray(err.details)) {
-        showAlert(applyAlert, "error", "Server validation caught invalid inputs.");
-        err.details.forEach((d) => setFieldError(d.field, d.message));
-      } else {
-        showAlert(applyAlert, "error", err.message || "Failed to submit application.");
-      }
+      showToast(json.error?.message || "Failed to submit application.");
     }
   } catch (err) {
-    showAlert(applyAlert, "error", "Network error: Unable to contact server. Please retry.");
+    showToast("Network error during application.");
   } finally {
-    submitApplyBtn.disabled = false;
-    btnText.textContent = "Submit Application 🚀";
-    spinner.hidden = true;
+    btn.disabled = false;
   }
 });
 
-$("coverLetter").addEventListener("input", (e) => {
-  $("charCount").textContent = e.target.value.length;
+// -------------------------------------------------------------
+// 7. Post an Internship Modal
+// -------------------------------------------------------------
+$("postInternshipBtn").addEventListener("click", () => {
+  $("postForm").reset();
+  const d = new Date();
+  d.setDate(d.getDate() + 30);
+  $("postDeadline").value = d.toISOString().split("T")[0];
+  $("postAlert").hidden = true;
+  $("postModal").hidden = false;
+  $("postTitle").focus();
 });
 
-["fullName", "email", "phone", "resumeUrl"].forEach((id) => {
-  $(id).addEventListener("input", () => clearFieldError(id));
+$("closePostModal").addEventListener("click", () => { $("postModal").hidden = true; });
+$("cancelPostBtn").addEventListener("click", () => { $("postModal").hidden = true; });
+
+$("postForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const title = $("postTitle").value.trim();
+  const company = $("postCompany").value.trim();
+  const category = $("postCategory").value;
+  const location = $("postLocation").value.trim();
+  const workMode = $("postWorkMode").value;
+  const duration = Number($("postDuration").value) || 3;
+  const stipend = Number($("postStipend").value) || 0;
+  const rawSkills = $("postSkills").value.trim();
+  const deadline = $("postDeadline").value;
+  const status = $("postStatus").value;
+  const description = $("postDesc").value.trim();
+
+  if (!title || !company || !location || !rawSkills || !deadline || !description) {
+    showToast("Please fill all required fields.");
+    return;
+  }
+
+  const skills = rawSkills.split(",").map((s) => s.trim()).filter(Boolean);
+  const payload = { title, company, category, location, work_mode: workMode, duration, stipend, skills, deadline, status, description };
+
+  const btn = $("submitPostBtn");
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API_BASE}/internships`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.status === 201) {
+      showToast("✨ New internship posted to InternshipChesko!");
+      $("postModal").hidden = true;
+      fetchInternships();
+    } else {
+      showToast("Failed to post internship.");
+    }
+  } catch (err) {
+    showToast("Network error while posting.");
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // -------------------------------------------------------------
-// 4. Role Detail View & Candidate List for Employers
+// 8. Role Detail View
 // -------------------------------------------------------------
 function openDetailView(id) {
   const item = allInternships.find((i) => i.id === Number(id));
   if (!item) return;
-
-  const isSaved = savedIds.includes(item.id);
   const isOpen = item.status === "open";
   const skills = Array.isArray(item.skills) ? item.skills : [];
 
-  detailContent.innerHTML = `
+  $("detailContent").innerHTML = `
     <div class="modal-header">
       <span class="modal-badge">${item.category} · ${item.work_mode.toUpperCase()}</span>
       <h2>${item.title}</h2>
@@ -421,219 +866,39 @@ function openDetailView(id) {
     </div>
     <h4 style="margin-bottom:8px;">About the Opportunity</h4>
     <p style="color:#495057; line-height:1.6; margin-bottom:24px;">${item.description || 'No detailed description provided.'}</p>
-    <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:flex-end;">
-      <button class="btn btn-outline" id="viewCandidatesBtn">
-        👥 View Applicants
-      </button>
-      <button class="btn btn-outline" id="detailSaveBtn">
-        ${isSaved ? '♥ Saved' : '♡ Save Internship'}
-      </button>
-      <button class="btn btn-primary" id="detailApplyBtn" ${!isOpen ? 'disabled' : ''}>
-        ${isOpen ? 'Apply for this Position' : 'Applications Closed'}
+    <div style="display:flex; justify-content:flex-end; gap:10px;">
+      <button class="btn btn-outline" id="detailApplyBtn" ${!isOpen ? 'disabled' : ''}>
+        ${isOpen ? 'Apply for this Role' : 'Applications Closed'}
       </button>
     </div>
   `;
 
-  $("detailSaveBtn").addEventListener("click", () => {
-    toggleSave(item.id);
-    openDetailView(item.id);
-  });
-
-  $("viewCandidatesBtn").addEventListener("click", () => {
-    detailModal.hidden = true;
-    openApplicantsModal(item.id, item.title, item.company);
-  });
-
   if (isOpen) {
     $("detailApplyBtn").addEventListener("click", () => {
-      detailModal.hidden = true;
+      $("detailModal").hidden = true;
       openApplyModal(item.id);
     });
   }
-
-  detailModal.hidden = false;
+  $("detailModal").hidden = false;
 }
 
-// -------------------------------------------------------------
-// 5. Recruiter: View Applicants for an Internship
-// -------------------------------------------------------------
-async function openApplicantsModal(internshipId, title, company) {
-  $("applicantsModalTitle").textContent = `Candidates for: ${title}`;
-  $("applicantsModalSubtitle").textContent = `${company} · Position #${internshipId}`;
-  applicantsList.innerHTML = `<p class="text-muted text-center" style="margin:20px 0;">Loading applicants from database...</p>`;
-  applicantsModal.hidden = false;
-
-  try {
-    const res = await fetch(`${API_BASE}/internships/${internshipId}/applications`);
-    const data = await res.json();
-    const apps = data.data || [];
-
-    if (apps.length === 0) {
-      applicantsList.innerHTML = `<p class="text-muted text-center" style="margin:20px 0;">No candidates have applied for this position yet.</p>`;
-      return;
-    }
-
-    applicantsList.innerHTML = apps.map((a) => `
-      <div class="app-item-card">
-        <div class="app-item-header">
-          <span>${a.full_name}</span>
-          <span style="font-size:0.8rem; color:#868e96;">Applied ${formatDate(a.created_at)}</span>
-        </div>
-        <div style="font-size:0.88rem; color:#495057; margin-bottom:6px;">
-          📧 ${a.email} · 📱 ${a.phone}
-        </div>
-        ${a.cover_letter ? `<div style="font-size:0.84rem; color:#6c757d; font-style:italic; margin-bottom:8px;">"${a.cover_letter}"</div>` : ''}
-        <div>
-          <a href="${a.resume_url}" target="_blank" rel="noopener" class="btn btn-outline btn-sm" style="display:inline-flex;">
-            📄 View Resume
-          </a>
-        </div>
-      </div>
-    `).join("");
-  } catch (err) {
-    applicantsList.innerHTML = `<p style="color:var(--danger); text-align:center; margin:20px 0;">Failed to load candidate applications.</p>`;
-  }
-}
+$("closeDetailModal").addEventListener("click", () => { $("detailModal").hidden = true; });
 
 // -------------------------------------------------------------
-// 6. Recruiter: Post New Internship
+// 9. Delegator & Global Events
 // -------------------------------------------------------------
-postInternshipBtn.addEventListener("click", () => {
-  postForm.reset();
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
-  $("postDeadline").value = d.toISOString().split("T")[0];
-  hideAlert(postAlert);
-  postModal.hidden = false;
-  $("postTitle").focus();
+$("internshipGrid").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn) return;
+  const action = btn.getAttribute("data-action");
+  const id = btn.getAttribute("data-id");
+
+  if (action === "apply") openApplyModal(id);
+  else if (action === "detail") openDetailView(id);
+  else if (action === "save") toggleSave(id);
+  else if (action === "share") shareInternship(id);
 });
 
-cancelPostBtn.addEventListener("click", () => { postModal.hidden = true; });
-closePostModal.addEventListener("click", () => { postModal.hidden = true; });
-
-postForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  hideAlert(postAlert);
-
-  const title = $("postTitle").value.trim();
-  const company = $("postCompany").value.trim();
-  const category = $("postCategory").value;
-  const location = $("postLocation").value.trim();
-  const workMode = $("postWorkMode").value;
-  const duration = Number($("postDuration").value) || 3;
-  const stipend = Number($("postStipend").value) || 0;
-  const rawSkills = $("postSkills").value.trim();
-  const deadline = $("postDeadline").value;
-  const status = $("postStatus").value;
-  const description = $("postDesc").value.trim();
-
-  if (!title || !company || !location || !rawSkills || !deadline || !description) {
-    showAlert(postAlert, "error", "Please fill out all required fields.");
-    return;
-  }
-
-  const skills = rawSkills.split(",").map((s) => s.trim()).filter(Boolean);
-
-  const payload = {
-    title,
-    company,
-    category,
-    location,
-    work_mode: workMode,
-    duration,
-    stipend,
-    skills,
-    deadline,
-    status,
-    description
-  };
-
-  const btnText = submitPostBtn.querySelector(".btn-text");
-  const spinner = submitPostBtn.querySelector(".spinner");
-  submitPostBtn.disabled = true;
-  btnText.textContent = "Publishing...";
-  spinner.hidden = false;
-
-  try {
-    const res = await fetch(`${API_BASE}/internships`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await res.json();
-
-    if (res.status === 201) {
-      showAlert(postAlert, "success", "✨ Internship successfully posted to InternshipChesko!");
-      showToast("🚀 New internship posted live!");
-      postForm.reset();
-
-      // Refresh listings
-      await fetchInternships();
-
-      setTimeout(() => {
-        postModal.hidden = true;
-      }, 1800);
-    } else {
-      showAlert(postAlert, "error", data.error?.message || "Failed to publish internship.");
-    }
-  } catch (err) {
-    showAlert(postAlert, "error", "Network error while publishing internship.");
-  } finally {
-    submitPostBtn.disabled = false;
-    btnText.textContent = "Publish Internship ✨";
-    spinner.hidden = true;
-  }
-});
-
-// -------------------------------------------------------------
-// 7. My Applications Tracker
-// -------------------------------------------------------------
-$("myAppsBtn").addEventListener("click", () => {
-  const lastEmail = localStorage.getItem("internhub_last_email") || "";
-  if (lastEmail) $("lookupEmail").value = lastEmail;
-  myAppsModal.hidden = false;
-  if (lastEmail) fetchMyApplications(lastEmail);
-});
-
-$("lookupBtn").addEventListener("click", () => {
-  const email = $("lookupEmail").value.trim();
-  if (!email) return;
-  fetchMyApplications(email);
-});
-
-async function fetchMyApplications(email) {
-  const listEl = $("myAppsResults");
-  listEl.innerHTML = `<p class="text-muted text-center" style="margin:20px 0;">Searching records...</p>`;
-
-  try {
-    const res = await fetch(`${API_BASE}/applications/my?email=${encodeURIComponent(email)}`);
-    const data = await res.json();
-    const apps = data.data || [];
-
-    if (apps.length === 0) {
-      listEl.innerHTML = `<p class="text-muted text-center" style="margin:20px 0;">No submitted applications found for <strong>${email}</strong>.</p>`;
-      return;
-    }
-
-    listEl.innerHTML = apps.map((a) => `
-      <div class="app-item-card">
-        <div class="app-item-header">
-          <span>${a.title}</span>
-          <span class="badge badge-status-open">SUBMITTED</span>
-        </div>
-        <div style="font-size:0.85rem; color:#6c757d; margin-bottom:6px;">${a.company} · ${a.location} (${a.work_mode})</div>
-        <div style="font-size:0.8rem; color:#868e96;">Applied on: ${formatDate(a.created_at)} · Reference #${a.id}</div>
-      </div>
-    `).join("");
-  } catch (err) {
-    listEl.innerHTML = `<p style="color:var(--danger); text-align:center; margin:20px 0;">Failed to load applications.</p>`;
-  }
-}
-
-// -------------------------------------------------------------
-// 8. Bookmarking & Share
-// -------------------------------------------------------------
 function toggleSave(id) {
   const numId = Number(id);
   if (savedIds.includes(numId)) {
@@ -650,7 +915,7 @@ function toggleSave(id) {
 function shareInternship(id) {
   const item = allInternships.find((i) => i.id === Number(id));
   if (!item) return;
-  const shareText = `Check out this opening on InternshipChesko 🎯: ${item.title} at ${item.company} (${item.work_mode}, ${item.location})!`;
+  const shareText = `Check out this opening on InternshipChesko 🎯: ${item.title} at ${item.company} (${item.work_mode})!`;
   if (navigator.clipboard) {
     navigator.clipboard.writeText(shareText);
     showToast("Position details copied to clipboard! 📋");
@@ -659,91 +924,56 @@ function shareInternship(id) {
   }
 }
 
-// -------------------------------------------------------------
-// 9. Event Wiring
-// -------------------------------------------------------------
+// Category Pills
+$("categoryPills").addEventListener("click", (e) => {
+  const pill = e.target.closest(".pill");
+  if (!pill) return;
+  document.querySelectorAll(".category-pills .pill").forEach((p) => p.classList.remove("active"));
+  pill.classList.add("active");
+  activeCategory = pill.getAttribute("data-category");
+  renderListings();
+});
+
+// Filters & Search
+$("search").addEventListener("input", renderListings);
+$("workModeFilter").addEventListener("change", renderListings);
+$("statusFilter").addEventListener("change", renderListings);
+$("sortFilter").addEventListener("change", renderListings);
+$("savedOnly").addEventListener("change", renderListings);
+$("stipendFilter").addEventListener("input", (e) => {
+  $("stipendLabel").textContent = `₹${Number(e.target.value).toLocaleString("en-IN")}/mo`;
+  renderListings();
+});
+
+$("resetFilters").addEventListener("click", () => {
+  $("search").value = "";
+  $("workModeFilter").value = "";
+  $("statusFilter").value = "";
+  $("stipendFilter").value = 0;
+  $("stipendLabel").textContent = "₹0/mo";
+  $("sortFilter").value = "default";
+  $("savedOnly").checked = false;
+  document.querySelectorAll(".category-pills .pill").forEach((p) => p.classList.remove("active"));
+  document.querySelector('.category-pills .pill[data-category=""]').classList.add("active");
+  activeCategory = "";
+  renderListings();
+});
+
+$("clearFiltersBtn").addEventListener("click", () => $("resetFilters").click());
+$("retryBtn").addEventListener("click", fetchInternships);
+$("refreshBtn").addEventListener("click", fetchInternships);
+
+window.addEventListener("click", (e) => {
+  if (e.target === $("applyModal")) $("applyModal").hidden = true;
+  if (e.target === $("detailModal")) $("detailModal").hidden = true;
+  if (e.target === $("postModal")) $("postModal").hidden = true;
+  if (e.target === $("submitTaskModal")) $("submitTaskModal").hidden = true;
+  if (e.target === $("certificateModal")) $("certificateModal").hidden = true;
+});
+
+// On Load
 document.addEventListener("DOMContentLoaded", () => {
-  $("year").textContent = new Date().getFullYear();
-
-  // Retry & Sync
-  retryBtn.addEventListener("click", fetchInternships);
-  refreshBtn.addEventListener("click", fetchInternships);
-
-  // Filters & Search
-  $("search").addEventListener("input", renderListings);
-  $("workModeFilter").addEventListener("change", renderListings);
-  $("statusFilter").addEventListener("change", renderListings);
-  $("sortFilter").addEventListener("change", renderListings);
-  $("savedOnly").addEventListener("change", renderListings);
-
-  // Stipend Slider
-  $("stipendFilter").addEventListener("input", (e) => {
-    $("stipendLabel").textContent = `₹${Number(e.target.value).toLocaleString("en-IN")}/mo`;
-    renderListings();
-  });
-
-  // Category Pills
-  $("categoryPills").addEventListener("click", (e) => {
-    const pill = e.target.closest(".pill");
-    if (!pill) return;
-    document.querySelectorAll(".category-pills .pill").forEach((p) => p.classList.remove("active"));
-    pill.classList.add("active");
-    activeCategory = pill.getAttribute("data-category");
-    renderListings();
-  });
-
-  $("resetFilters").addEventListener("click", () => {
-    $("search").value = "";
-    $("workModeFilter").value = "";
-    $("statusFilter").value = "";
-    $("stipendFilter").value = 0;
-    $("stipendLabel").textContent = "₹0/mo";
-    $("sortFilter").value = "default";
-    $("savedOnly").checked = false;
-    document.querySelectorAll(".category-pills .pill").forEach((p) => p.classList.remove("active"));
-    document.querySelector('.category-pills .pill[data-category=""]').classList.add("active");
-    activeCategory = "";
-    renderListings();
-  });
-
-  $("clearFiltersBtn").addEventListener("click", () => $("resetFilters").click());
-
-  // Mobile Drawer Toggle
-  $("filterToggle").addEventListener("click", () => {
-    filtersDrawer.classList.toggle("open");
-  });
-  $("closeFiltersBtn").addEventListener("click", () => {
-    filtersDrawer.classList.remove("open");
-  });
-
-  // Modal Closers
-  cancelApplyBtn.addEventListener("click", closeApplyModalView);
-  closeApplyModal.addEventListener("click", closeApplyModalView);
-  closeDetailModal.addEventListener("click", () => { detailModal.hidden = true; });
-  closeMyAppsModal.addEventListener("click", () => { myAppsModal.hidden = true; });
-  closeApplicantsModal.addEventListener("click", () => { applicantsModal.hidden = true; });
-
-  window.addEventListener("click", (e) => {
-    if (e.target === applyModal) closeApplyModalView();
-    if (e.target === detailModal) detailModal.hidden = true;
-    if (e.target === myAppsModal) myAppsModal.hidden = true;
-    if (e.target === postModal) postModal.hidden = true;
-    if (e.target === applicantsModal) applicantsModal.hidden = true;
-  });
-
-  // Grid Action Delegator
-  internshipGrid.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-action]");
-    if (!btn) return;
-    const action = btn.getAttribute("data-action");
-    const id = btn.getAttribute("data-id");
-
-    if (action === "apply") openApplyModal(id);
-    else if (action === "detail") openDetailView(id);
-    else if (action === "save") toggleSave(id);
-    else if (action === "share") shareInternship(id);
-  });
-
-  // Initial Fetch
   fetchInternships();
+  refreshInternPortal();
+  loadAdminMetrics();
 });

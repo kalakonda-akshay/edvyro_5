@@ -203,3 +203,78 @@ def test_crud_lifecycle():
         # Delete
         assert client.delete(f"/internships/{created_id}").status_code == 204
         assert client.get(f"/internships/{created_id}").status_code == 404
+
+
+def test_intern_registration_and_task_milestones():
+    """Verify intern registration, milestone listing, and progress tracking."""
+    with TestClient(app) as client:
+        # Register new intern
+        reg_payload = {
+            "name": "Kavya Reddy",
+            "email": "kavya.test@example.com",
+            "phone": "+91 9988776655",
+            "college": "CBIT Hyderabad",
+            "domain": "Full Stack Web Development",
+            "role": "intern",
+        }
+        reg_res = client.post("/auth/register", json=reg_payload)
+        assert reg_res.status_code == 200
+        user_id = reg_res.json()["data"]["id"]
+
+        # Check assigned tasks
+        tasks_res = client.get(f"/users/{user_id}/tasks")
+        assert tasks_res.status_code == 200
+        tasks_data = tasks_res.json()["data"]
+        assert len(tasks_data["tasks"]) == 5
+        assert tasks_data["progress_percent"] == 0
+        assert tasks_data["certificate_unlocked"] is False
+
+
+def test_admin_review_workflow_and_certificate_auto_issuance():
+    """Verify intern submits all 5 tasks, admin approves them, and Certificate is issued."""
+    with TestClient(app) as client:
+        # 1. Register intern
+        user_res = client.post("/auth/register", json={
+            "name": "Rohit Verma",
+            "email": "rohit.complete@example.com",
+            "college": "JNTU Hyderabad",
+            "domain": "Cloud & DevOps",
+            "role": "intern",
+        })
+        user_id = user_res.json()["data"]["id"]
+
+        tasks = client.get("/tasks").json()["data"]
+        assert len(tasks) == 5
+
+        # 2. Submit all 5 tasks
+        for t in tasks:
+            submit_res = client.post(f"/users/{user_id}/tasks/{t['id']}/submit", json={
+                "submission_url": f"https://github.com/rohit/task-{t['task_num']}",
+                "notes": f"Completed deliverable for milestone {t['task_num']}"
+            })
+            assert submit_res.status_code == 201
+
+        # 3. Admin reviews and approves all 5 submissions
+        admin_subs = client.get("/admin/submissions").json()["data"]
+        user_subs = [s for s in admin_subs if s["user_id"] == user_id]
+        assert len(user_subs) == 5
+
+        for s in user_subs:
+            review_res = client.post(f"/admin/submissions/{s['id']}/review", json={
+                "status": "approved",
+                "feedback": "Excellent work and thorough tests!"
+            })
+            assert review_res.status_code == 200
+
+        # 4. Verify Certificate is automatically generated
+        cert_res = client.get(f"/users/{user_id}/certificate")
+        assert cert_res.status_code == 200
+        cert = cert_res.json()["data"]
+        assert cert["user_id"] == user_id
+        assert cert["intern_name"] == "Rohit Verma"
+        assert cert["certificate_id"].startswith("IC-2026-")
+
+        # 5. Public Certificate Verification endpoint
+        verify_res = client.get(f"/certificates/{cert['certificate_id']}")
+        assert verify_res.status_code == 200
+        assert verify_res.json()["data"]["verification_status"] == "VERIFIED & AUTHENTIC"

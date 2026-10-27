@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 WorkMode = Literal["remote", "onsite", "hybrid"]
 Status = Literal["open", "closed"]
+UserRole = Literal["intern", "admin"]
+SubmissionStatus = Literal["pending", "approved", "rejected"]
 
 EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 PHONE_REGEX = re.compile(r"^\+?[0-9\s\-()]{7,25}$")
@@ -95,3 +97,53 @@ class ApplicationCreate(BaseModel):
         if not (clean.startswith("http://") or clean.startswith("https://")):
             raise ValueError("Resume URL must begin with http:// or https://")
         return clean
+
+
+class UserRegister(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(min_length=2, max_length=100)
+    email: str = Field(min_length=5, max_length=120)
+    phone: str = Field(default="", max_length=25)
+    college: str = Field(default="Engineering University", min_length=2, max_length=120)
+    domain: str = Field(default="Full Stack Web Development", min_length=2, max_length=100)
+    role: UserRole = "intern"
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, value: str) -> str:
+        clean = value.strip().lower()
+        if not EMAIL_REGEX.match(clean):
+            raise ValueError("Invalid email format")
+        return clean
+
+
+class TaskSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    submission_url: str = Field(min_length=8, max_length=500, description="GitHub repository or live URL")
+    notes: Optional[str] = Field(default="", max_length=2000, description="Deliverable notes and proof description")
+
+    @field_validator("submission_url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        clean = value.strip()
+        if not (clean.startswith("http://") or clean.startswith("https://")):
+            raise ValueError("Submission URL must begin with http:// or https://")
+        return clean
+
+
+class TaskReview(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    status: SubmissionStatus
+    feedback: Optional[str] = Field(default="", max_length=1000)
+
+
+class CertificateIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    user_id: int
+    internship_title: Optional[str] = "Full Stack Engineering Internship"
+    company: Optional[str] = "InternshipChesko Tech Labs"
+    grade: Optional[str] = "Outstanding (A+)"
