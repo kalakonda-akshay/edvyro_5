@@ -5,9 +5,10 @@
 ---
 
 ## 🌐 Production & Deliverable Links
+- **Live Production Application**: [https://edvyro5.vercel.app](https://edvyro5.vercel.app)
 - **GitHub Repository**: [https://github.com/kalakonda-akshay/edvyro_5](https://github.com/kalakonda-akshay/edvyro_5)
-- **Interactive Swagger Documentation**: `http://localhost:8000/docs`
-- **System Health Diagnostics**: `http://localhost:8000/health`
+- **Live Health Diagnostics**: [https://edvyro5.vercel.app/health](https://edvyro5.vercel.app/health)
+- **Interactive Swagger Documentation**: [https://edvyro5.vercel.app/docs](https://edvyro5.vercel.app/docs)
 
 ---
 
