@@ -23,6 +23,23 @@ let currentViewingCertificate = null;
 // DOM Utilities
 const $ = (id) => document.getElementById(id);
 
+// Formatting & Sanitization Utilities
+const formatCurrency = (val) => (val ? "₹" + Number(val).toLocaleString("en-IN") + "/mo" : "Unpaid / Experience");
+const formatDate = (isoStr) => {
+  if (!isoStr) return "Rolling admission";
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return isoStr;
+    return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  } catch (e) {
+    return isoStr;
+  }
+};
+const escapeHtml = (str) => {
+  if (!str) return "";
+  return String(str).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]);
+};
+
 function showModal(modal) {
   const el = typeof modal === "string" ? $(modal) : modal;
   if (!el) return;
