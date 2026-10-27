@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import Dict, Any
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = os.environ.get("DB_PATH", str(ROOT / "internships.db"))
+if os.environ.get("VERCEL"):
+    DB_PATH = "/tmp/internships.db"
+else:
+    DB_PATH = os.environ.get("DB_PATH", str(ROOT / "internships.db"))
 
 
 def get_conn() -> sqlite3.Connection:
@@ -14,8 +17,11 @@ def get_conn() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     # Production SQLite optimizations
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+    except Exception:
+        pass
     return conn
 
 

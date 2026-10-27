@@ -36,14 +36,23 @@ COLUMNS = ["title", "company", "category", "location", "work_mode", "duration", 
 NOW = "strftime('%Y-%m-%dT%H:%M:%SZ','now')"
 
 
+_db_initialized = False
+
+
+def ensure_db():
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            db.seed_db()
+            _db_initialized = True
+        except Exception as e:
+            logger.error("DB init error: %s", str(e))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing database schema and checking seed data...")
-    seeded = db.seed_db()
-    if seeded > 0:
-        logger.info("Successfully seeded %d capstone internships.", seeded)
-    else:
-        logger.info("Database already initialized and populated.")
+    ensure_db()
     yield
     logger.info("InternHub server shutting down cleanly.")
 
@@ -168,6 +177,7 @@ def to_row_data(data: dict) -> dict:
 @app.get("/health", tags=["Health"])
 def health_check():
     """Comprehensive system health diagnostics and telemetry."""
+    ensure_db()
     uptime_sec = round(time.time() - START_TIME, 2)
     db_metrics = db.get_db_stats()
     return {
@@ -211,6 +221,7 @@ def list_internships(
     offset: int = Query(0, ge=0),
 ):
     """Retrieve filtered, searchable list of internships."""
+    ensure_db()
     where, params = [], []
     if status:
         where.append("status = ?")
