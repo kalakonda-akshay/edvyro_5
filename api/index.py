@@ -1,23 +1,19 @@
 from app.main import app as fastapi_app
+from fastapi.responses import JSONResponse
 
 
-class VercelPathMiddleware:
-    """Adjusts ASGI scope['path'] when running behind Vercel serverless rewrites."""
+async def app(scope, receive, send):
+    if scope["type"] == "http":
+        headers = dict(scope.get("headers", []))
+        # Check what Vercel sends
+        path = scope.get("path", "")
+        # Vercel sends x-forwarded-uri or x-matched-path or x-real-ip
+        forwarded_path = headers.get(b"x-forwarded-uri", b"").decode("utf-8") or headers.get(b"x-matched-path", b"").decode("utf-8")
+        if forwarded_path:
+            scope["path"] = forwarded_path
+        elif path.startswith("/api/index.py"):
+            scope["path"] = path.replace("/api/index.py", "") or "/"
+        elif path.startswith("/api/index"):
+            scope["path"] = path.replace("/api/index", "") or "/"
 
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] in ("http", "websocket"):
-            path = scope.get("path", "")
-            for prefix in ["/api/index.py", "/api/index", "/api"]:
-                if path == prefix:
-                    scope["path"] = "/"
-                    break
-                elif path.startswith(prefix + "/"):
-                    scope["path"] = path[len(prefix):]
-                    break
-        await self.app(scope, receive, send)
-
-
-app = VercelPathMiddleware(fastapi_app)
+    await fastapi_app(scope, receive, send)
